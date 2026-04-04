@@ -72,6 +72,10 @@ export interface FundData {
   totalValue: number;
   returnPct: number;
   winRate: number;
+  winCount: number;
+  lossCount: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
   openPositions: number;
   monthlyTarget: number;
   frozen: boolean;
@@ -272,7 +276,9 @@ function useHighlight(events: AgentEvent[]) {
       return { text: `${name} ${t("heroHighlightSettled")} "${String(p.question).slice(0, 40)}" (${sign}$${pnl.toFixed(2)})`, positive: pnl >= 0, url: polymarketUrl(p.slug, p.question) };
     }
     if (e.type === "SIGNAL_FOUND" && Number(p.edge) > 15) {
-      return { text: `${t("heroHighlightSignal")} ${Number(p.edge).toFixed(1)}% ${t("heroHighlightEdge")} — ${String(p.question).slice(0, 40)}`, positive: true, url: polymarketUrl(p.slug, p.question) };
+      const edgeVal = Number(p.edge);
+      const warn = edgeVal > 50 ? "⚠️ " : "";
+      return { text: `${warn}${t("heroHighlightSignal")} ${edgeVal.toFixed(1)}% ${t("heroHighlightEdge")} — ${String(p.question).slice(0, 40)}`, positive: true, url: polymarketUrl(p.slug, p.question) };
     }
     if (e.type === "TRADE_OPENED") {
       return { text: `${tFund(p.fundName)} ${t("eventOpened")} · $${String(p.amount)} · ${String(p.question).slice(0, 40)}`, positive: true, url: polymarketUrl(p.slug, p.question) };
@@ -286,29 +292,64 @@ function useHighlight(events: AgentEvent[]) {
 
 function HeroOverview({ funds, events }: { funds: FundData[]; events: AgentEvent[] }) {
   const { t } = useI18n();
-  const totalPool = funds.reduce((s, f) => s + f.totalValue, 0);
-  const avgWR = funds.length > 0 ? funds.reduce((s, f) => s + f.winRate, 0) / funds.length : 0;
-  const totalOpen = funds.reduce((s, f) => s + f.openPositions, 0);
-  const highlight = useHighlight(events);
 
-  const stats = [
-    { label: t("heroTotalPool"), value: `$${totalPool.toLocaleString()}` },
-    { label: t("heroSystemWR"), value: `${Math.round(avgWR * 100)}%` },
-    { label: t("heroActivePositions"), value: String(totalOpen) },
-  ];
+  const totalPool = funds.reduce((s, f) => s + f.totalValue, 0);
+  const initialCapital = funds.reduce((s, f) => s + f.initialBalance, 0);
+  const totalPnl = totalPool - initialCapital;
+  const totalReturnPct = initialCapital > 0 ? ((totalPool - initialCapital) / initialCapital) * 100 : 0;
+  const totalOpen = funds.reduce((s, f) => s + f.openPositions, 0);
+  const totalWins = funds.reduce((s, f) => s + (f.winCount ?? 0), 0);
+  const totalLosses = funds.reduce((s, f) => s + (f.lossCount ?? 0), 0);
+  const totalClosed = totalWins + totalLosses;
+  const avgWR = totalClosed > 0 ? totalWins / totalClosed : 0;
+  const wrSufficient = totalClosed >= 3;
+
+  const pnlColor = totalPnl > 0 ? "text-[var(--r-green)]" : totalPnl < 0 ? "text-[var(--r-red)]" : "";
+  const returnColor = totalReturnPct > 0 ? "text-[var(--r-green)]" : totalReturnPct < 0 ? "text-[var(--r-red)]" : "";
+  const pnlPrefix = totalPnl > 0 ? "+" : "";
+  const returnPrefix = totalReturnPct > 0 ? "+" : "";
+
+  const highlight = useHighlight(events);
 
   return (
     <div className="glass-card p-5 mb-6 relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-r from-[var(--r-accent)]/5 to-transparent pointer-events-none" />
       <div className="relative">
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          {stats.map(s => (
-            <div key={s.label} className="text-center">
-              <p className="text-xs text-[var(--r-text-muted)] mb-1">{s.label}</p>
-              <p className="text-xl font-bold font-mono tabular-nums">{s.value}</p>
-            </div>
-          ))}
+        {/* Primary row: 3 large metrics */}
+        <div className="grid grid-cols-3 gap-4 mb-3">
+          <div className="text-center">
+            <p className="text-xs text-[var(--r-text-muted)] mb-1">{t("heroTotalPool")}</p>
+            <p className="text-xl font-bold font-mono tabular-nums">${totalPool.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-[var(--r-text-muted)] mb-1">{t("heroTotalReturn")}</p>
+            <p className={`text-xl font-bold font-mono tabular-nums ${returnColor}`}>{returnPrefix}{totalReturnPct.toFixed(2)}%</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-[var(--r-text-muted)] mb-1">{t("heroActivePositions")}</p>
+            <p className="text-xl font-bold font-mono tabular-nums">{totalOpen}</p>
+          </div>
         </div>
+
+        {/* Secondary row: 3 supplementary metrics */}
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="text-center">
+            <p className="text-[10px] text-[var(--r-text-faint)] mb-0.5">{t("heroInitialCapital")}</p>
+            <p className="text-sm font-mono tabular-nums text-[var(--r-text-muted)]">${initialCapital.toLocaleString()}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] text-[var(--r-text-faint)] mb-0.5">{t("heroTotalPnl")}</p>
+            <p className={`text-sm font-mono tabular-nums ${pnlColor}`}>{pnlPrefix}${Math.abs(totalPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] text-[var(--r-text-faint)] mb-0.5">{t("heroSystemWR")}</p>
+            <p className="text-sm font-mono tabular-nums text-[var(--r-text-muted)]">
+              {wrSufficient ? `${Math.round(avgWR * 100)}%` : t("heroWRInsufficient")}
+            </p>
+          </div>
+        </div>
+
+        {/* Highlight ticker */}
         {highlight.url ? (
           <a
             href={highlight.url}

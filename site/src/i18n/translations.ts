@@ -280,8 +280,12 @@ const en = {
 
   // Hero overview
   heroTotalPool: "Total Pool",
-  heroSystemWR: "System WR",
+  heroTotalReturn: "Total Return",
   heroActivePositions: "Active Positions",
+  heroInitialCapital: "Initial Capital",
+  heroTotalPnl: "Total P&L",
+  heroSystemWR: "Win Rate",
+  heroWRInsufficient: "—",
   heroGeneration: "Generation",
   heroHighlight: "Highlight",
   heroHighlightSettled: "just settled",
@@ -578,8 +582,12 @@ const zh: Record<TranslationKey, string> = {
   paramChangeNew: "新增",
 
   heroTotalPool: "总资金池",
-  heroSystemWR: "系统胜率",
+  heroTotalReturn: "总收益率",
   heroActivePositions: "活跃仓位",
+  heroInitialCapital: "原始资金",
+  heroTotalPnl: "总收益",
+  heroSystemWR: "系统胜率",
+  heroWRInsufficient: "—",
   heroGeneration: "世代",
   heroHighlight: "亮点",
   heroHighlightSettled: "刚刚结算",
