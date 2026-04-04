@@ -12,7 +12,7 @@ import { ShadowPanel } from "./components/ShadowPanel";
 import { useI18n } from "./i18n/context";
 import type { TranslationKey } from "./i18n/translations";
 
-const WS_URL = import.meta.env.VITE_WS_URL || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
+const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD ? "wss://api.rotifer.xyz/ws" : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`);
 
 function RotiferLogo({ className = "w-6 h-6" }: { className?: string }) {
   return (

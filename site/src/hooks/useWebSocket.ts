@@ -15,7 +15,7 @@ interface UseWebSocketReturn {
 const MAX_EVENTS = 100;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "https://api.rotifer.xyz" : "");
 
 export function useWebSocket(url: string): UseWebSocketReturn {
   const [events, setEvents] = useState<AgentEvent[]>([]);
