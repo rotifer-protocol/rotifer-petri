@@ -1,5 +1,6 @@
 import type { FundConfig, MarketSnapshot, Settlement } from "./types";
 import { fetchCurrentPrice, calcUnrealizedPnl } from "./price";
+import { getExecutionMode, recordShadowClose } from "./execution";
 
 export interface RiskCheckResult {
   stopped: Settlement[];
@@ -18,6 +19,7 @@ export async function checkRiskLimits(
   const expired: Settlement[] = [];
   const now = new Date();
   const ts = now.toISOString();
+  const mode = await getExecutionMode(db);
 
   const openTrades = await db.prepare(
     "SELECT * FROM paper_trades WHERE status = 'OPEN'",
@@ -42,6 +44,10 @@ export async function checkRiskLimits(
       await db.prepare(
         "UPDATE paper_trades SET status = 'EXPIRED', exit_price = ?, pnl = ?, closed_at = ?, monitor_reason = ? WHERE id = ?",
       ).bind(exitPrice, pnl, ts, closeReason, trade.id).run();
+
+      if (mode === "shadow") {
+        await recordShadowClose(db, trade.id, trade.fund_id, trade.market_id, trade.slug ?? "", trade.question, trade.direction, exitPrice, trade.shares, pnl);
+      }
 
       expired.push({
         fundId: trade.fund_id,
@@ -68,6 +74,10 @@ export async function checkRiskLimits(
       await db.prepare(
         "UPDATE paper_trades SET status = 'STOPPED', exit_price = ?, pnl = ?, closed_at = ?, monitor_reason = ? WHERE id = ?",
       ).bind(currentPrice, unrealizedPnl, ts, closeReason, trade.id).run();
+
+      if (mode === "shadow") {
+        await recordShadowClose(db, trade.id, trade.fund_id, trade.market_id, trade.slug ?? "", trade.question, trade.direction, currentPrice, trade.shares, unrealizedPnl);
+      }
 
       stopped.push({
         fundId: trade.fund_id,

@@ -1,5 +1,6 @@
 import type { FundConfig, TradeStatus } from "./types";
 import { fetchPrices, calcUnrealizedPnl } from "./price";
+import { getExecutionMode, recordShadowClose } from "./execution";
 
 export interface MonitorAction {
   tradeId: string;
@@ -7,6 +8,8 @@ export interface MonitorAction {
   marketId: string;
   slug: string;
   question: string;
+  direction: string;
+  shares: number;
   newStatus: TradeStatus;
   pnl: number;
   reason: string;
@@ -66,6 +69,8 @@ export async function monitor(
         marketId: trade.market_id,
         slug: trade.slug ?? "",
         question: trade.question,
+        direction: trade.direction,
+        shares: trade.shares,
         newStatus: "PROFIT_TAKEN",
         pnl: Math.round(unrealized * 100) / 100,
         reason: `Take profit triggered at ${(returnPct * 100).toFixed(1)}% (threshold: ${(fund.takeProfitPercent * 100).toFixed(0)}%)`,
@@ -92,6 +97,8 @@ export async function monitor(
           marketId: trade.market_id,
           slug: trade.slug ?? "",
           question: trade.question,
+          direction: trade.direction,
+          shares: trade.shares,
           newStatus: "TRAILING_STOPPED",
           pnl: Math.round(pnl * 100) / 100,
           reason: `Trailing stop: price dropped ${(dropFromHwm * 100).toFixed(1)}% from HWM ${newHwm.toFixed(3)} (threshold: ${(fund.trailingStopPercent * 100).toFixed(0)}%)`,
@@ -113,6 +120,8 @@ export async function monitor(
           marketId: trade.market_id,
           slug: trade.slug ?? "",
           question: trade.question,
+          direction: trade.direction,
+          shares: trade.shares,
           newStatus: "REVERSED",
           pnl: Math.round(pnl * 100) / 100,
           reason: `Probability reversed by ${(reversal * 100).toFixed(1)}pp (threshold: ${(fund.probReversalThreshold * 100).toFixed(0)}pp)`,
@@ -132,6 +141,8 @@ export async function monitor(
           marketId: trade.market_id,
           slug: trade.slug ?? "",
           question: trade.question,
+          direction: trade.direction,
+          shares: trade.shares,
           newStatus: "REVERSED",
           pnl: Math.round(pnl * 100) / 100,
           reason: `Probability reversed by ${(reversal * 100).toFixed(1)}pp against short (threshold: ${(fund.probReversalThreshold * 100).toFixed(0)}pp)`,
@@ -159,9 +170,15 @@ export async function executeMonitorActions(
     ).bind(hwm.hwm, hwm.tradeId).run();
   }
 
+  const mode = await getExecutionMode(db);
+
   for (const action of monitorResult.actions) {
     await db.prepare(
       "UPDATE paper_trades SET status = ?, exit_price = ?, pnl = ?, closed_at = ?, monitor_reason = ? WHERE id = ?",
     ).bind(action.newStatus, action.currentPrice, action.pnl, now, action.reason, action.tradeId).run();
+
+    if (mode === "shadow") {
+      await recordShadowClose(db, action.tradeId, action.fundId, action.marketId, action.slug, action.question, action.direction, action.currentPrice, action.shares, action.pnl);
+    }
   }
 }

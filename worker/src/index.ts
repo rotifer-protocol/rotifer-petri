@@ -24,6 +24,14 @@ import {
   calculateTotalValue,
   PERFORMANCE_REALIZED_TRADE_WHERE_SQL,
 } from "./accounting";
+import {
+  isKillSwitchActive,
+  getExecutionMode,
+  setKillSwitch,
+  getSystemConfig,
+  setExecutionMode,
+  type ExecutionMode,
+} from "./execution";
 export { LiveHub } from "./ws-hub";
 
 // ─── Fund Loading ────────────────────────────────────────
@@ -123,6 +131,16 @@ async function takeSnapshot(db: D1Database, date: string, funds: FundConfig[]): 
 async function runPipeline(env: Env, funds: FundConfig[]): Promise<Record<string, unknown>> {
   const ts = new Date().toISOString();
   const scanId = crypto.randomUUID();
+
+  if (await isKillSwitchActive(env.DB)) {
+    console.warn("KILL_SWITCH active — pipeline halted");
+    await broadcast(env, {
+      type: "ERROR",
+      timestamp: ts,
+      payload: { stage: "kill_switch", message: "Trading halted by kill switch" },
+    });
+    return { halted: true, reason: "KILL_SWITCH", timestamp: ts };
+  }
 
   const riskResult = await checkRiskLimits(env.DB, funds);
 
@@ -438,6 +456,38 @@ export default {
       }
     }
 
+    if (path === "/kill-switch" && req.method === "POST") {
+      const authError = requireAuth(req, env);
+      if (authError) return authError;
+      try {
+        const body = await req.json() as { active: boolean };
+        await setKillSwitch(env.DB, body.active);
+        await broadcast(env, {
+          type: body.active ? "ERROR" : "CONNECTED",
+          timestamp: new Date().toISOString(),
+          payload: { killSwitch: body.active, message: body.active ? "Kill switch ACTIVATED" : "Kill switch deactivated" },
+        });
+        return Response.json({ ok: true, killSwitch: body.active }, { headers: corsHeaders(origin) });
+      } catch (e: unknown) {
+        return Response.json({ error: "Internal error" }, { status: 500, headers: corsHeaders(origin) });
+      }
+    }
+
+    if (path === "/execution-mode" && req.method === "POST") {
+      const authError = requireAuth(req, env);
+      if (authError) return authError;
+      try {
+        const body = await req.json() as { mode: ExecutionMode };
+        if (body.mode !== "paper" && body.mode !== "shadow") {
+          return Response.json({ error: "Invalid mode" }, { status: 400, headers: corsHeaders(origin) });
+        }
+        await setExecutionMode(env.DB, body.mode);
+        return Response.json({ ok: true, mode: body.mode }, { headers: corsHeaders(origin) });
+      } catch (e: unknown) {
+        return Response.json({ error: "Internal error" }, { status: 500, headers: corsHeaders(origin) });
+      }
+    }
+
     // Info endpoint
     return Response.json(
       {
@@ -459,12 +509,16 @@ export default {
           "GET /api/signals": "Recent signals (query: limit)",
           "GET /api/snapshots": "Portfolio snapshots (query: fund, limit)",
           "GET /api/evolution": "Evolution log and epoch history",
-          "GET /api/health": "Health check",
+          "GET /api/shadow": "Shadow order log and paper-vs-shadow comparison (query: fund, limit)",
+          "GET /api/system": "System config (kill switch, execution mode)",
+          "GET /api/health": "Health check (includes kill switch + mode)",
           "WS /ws": "Real-time event stream (WebSocket)",
           "POST /run": "Manual scan+trade (auth required)",
           "POST /report": "Manual daily report (auth required)",
           "POST /evolve": "Manual evolution trigger (auth required)",
           "POST /init-funds": "Initialize fund configs in D1 (auth required)",
+          "POST /kill-switch": "Toggle kill switch (auth required, body: {active: boolean})",
+          "POST /execution-mode": "Set execution mode (auth required, body: {mode: 'paper'|'shadow'})",
         },
       },
       { headers: corsHeaders(origin) },

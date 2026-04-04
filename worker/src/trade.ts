@@ -9,6 +9,7 @@ import {
   PERFORMANCE_REALIZED_TRADE_WHERE_SQL,
 } from "./accounting";
 import { fetchPrices } from "./price";
+import { getExecutionMode, recordShadowOpen } from "./execution";
 
 function entryDirection(sig: ArbSignal): string {
   if (sig.type === "MISPRICING") return sig.direction === "BUY_BOTH" ? "BUY_YES" : "SELL_YES";
@@ -126,9 +127,15 @@ export async function paperTrade(
       const dir = entryDirection(sig);
       const shares = amount / price;
 
+      const tradeId = crypto.randomUUID();
       await db.prepare(
         "INSERT INTO paper_trades (id, fund_id, signal_id, market_id, slug, question, direction, entry_price, shares, amount, status, opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)",
-      ).bind(crypto.randomUUID(), fund.id, sig.signalId, effectiveMarketId, sig.slug, sig.question, dir, price, shares, amount, ts).run();
+      ).bind(tradeId, fund.id, sig.signalId, effectiveMarketId, sig.slug, sig.question, dir, price, shares, amount, ts).run();
+
+      const mode = await getExecutionMode(db);
+      if (mode === "shadow") {
+        await recordShadowOpen(db, tradeId, fund.id, effectiveMarketId, sig.slug, sig.question, dir, price, shares, amount);
+      }
 
       cash -= amount;
       positionsOpened++;

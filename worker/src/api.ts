@@ -16,6 +16,7 @@ import {
   SYSTEM_INVALIDATION_MONITOR_REASON_SQL,
   toDisplayTradeStatus,
 } from "./trade-semantics";
+import { getSystemConfig } from "./execution";
 
 /**
  * D-Evo-11/13: Read-only GET endpoints for the frontend.
@@ -49,9 +50,22 @@ export async function handleApi(
   if (path === "/api/events") {
     return await apiEvents(env.DB, req, headers);
   }
+  if (path === "/api/shadow") {
+    return await apiShadow(env.DB, req, headers);
+  }
+  if (path === "/api/system") {
+    return await apiSystem(env.DB, headers);
+  }
   if (path === "/api/health") {
+    const config = await getSystemConfig(env.DB);
     return Response.json(
-      { status: "ok", timestamp: new Date().toISOString(), funds: funds.length },
+      {
+        status: config.KILL_SWITCH === "true" ? "halted" : "ok",
+        executionMode: config.EXECUTION_MODE || "paper",
+        killSwitch: config.KILL_SWITCH === "true",
+        timestamp: new Date().toISOString(),
+        funds: funds.length,
+      },
       { headers },
     );
   }
@@ -504,4 +518,67 @@ async function apiSnapshots(
     "SELECT * FROM portfolio_snapshots ORDER BY date DESC LIMIT ?",
   ).bind(limit * 5).all();
   return Response.json({ snapshots: result.results || [] }, { headers });
+}
+
+async function apiShadow(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const fundId = url.searchParams.get("fund");
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
+
+  try {
+    let query = "SELECT * FROM shadow_orders";
+    const bindings: any[] = [];
+
+    if (fundId) {
+      query += " WHERE fund_id = ?";
+      bindings.push(fundId);
+    }
+    query += " ORDER BY created_at DESC LIMIT ?";
+    bindings.push(limit);
+
+    const result = await db.prepare(query).bind(...bindings).all();
+    const orders = result.results || [];
+
+    const wouldFill = orders.filter((o: any) => o.status === "WOULD_FILL").length;
+    const wouldReject = orders.filter((o: any) => o.status === "WOULD_REJECT").length;
+
+    const paired = orders.filter((o: any) => o.paper_pnl !== null && o.shadow_pnl !== null);
+    const avgSlippageImpact = paired.length > 0
+      ? paired.reduce((sum: number, o: any) => sum + ((o.paper_pnl as number) - (o.shadow_pnl as number)), 0) / paired.length
+      : 0;
+    const totalPaperPnl = paired.reduce((sum: number, o: any) => sum + (o.paper_pnl as number), 0);
+    const totalShadowPnl = paired.reduce((sum: number, o: any) => sum + (o.shadow_pnl as number), 0);
+
+    return Response.json({
+      orders,
+      total: orders.length,
+      summary: {
+        wouldFill,
+        wouldReject,
+        fillRate: orders.length > 0 ? Math.round((wouldFill / orders.length) * 100) : 0,
+        avgSlippageImpact: Math.round(avgSlippageImpact * 100) / 100,
+        totalPaperPnl: Math.round(totalPaperPnl * 100) / 100,
+        totalShadowPnl: Math.round(totalShadowPnl * 100) / 100,
+        pnlDivergence: Math.round((totalPaperPnl - totalShadowPnl) * 100) / 100,
+      },
+    }, { headers });
+  } catch {
+    return Response.json({ orders: [], total: 0, summary: null }, { headers });
+  }
+}
+
+async function apiSystem(
+  db: D1Database,
+  headers: HeadersInit,
+): Promise<Response> {
+  const config = await getSystemConfig(db);
+  return Response.json({
+    killSwitch: config.KILL_SWITCH === "true",
+    executionMode: config.EXECUTION_MODE || "paper",
+    config,
+  }, { headers });
 }

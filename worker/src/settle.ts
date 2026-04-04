@@ -1,4 +1,5 @@
 import type { FundConfig, MarketSnapshot, Settlement } from "./types";
+import { getExecutionMode, recordShadowClose } from "./execution";
 
 /**
  * D-Evo-14: Fixed settlement logic.
@@ -26,6 +27,7 @@ export async function settle(
   const settlements: Settlement[] = [];
   const marketMap = new Map<string, MarketSnapshot>();
   for (const m of markets) marketMap.set(m.id, m);
+  const mode = await getExecutionMode(db);
 
   for (const trade of openTrades.results as any[]) {
     const m = marketMap.get(trade.market_id);
@@ -58,6 +60,10 @@ export async function settle(
     await db.prepare(
       "UPDATE paper_trades SET status = 'RESOLVED', exit_price = ?, pnl = ?, closed_at = ?, monitor_reason = ? WHERE id = ?",
     ).bind(exitPrice, pnl, new Date().toISOString(), closeReason, trade.id).run();
+
+    if (mode === "shadow") {
+      await recordShadowClose(db, trade.id, trade.fund_id, trade.market_id, trade.slug ?? "", trade.question, trade.direction, exitPrice, trade.shares, pnl);
+    }
 
     const fund = funds.find(f => f.id === trade.fund_id);
     settlements.push({

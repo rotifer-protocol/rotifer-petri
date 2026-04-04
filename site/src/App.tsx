@@ -8,6 +8,7 @@ import { EventFeed } from "./components/EventFeed";
 import { StatusBar } from "./components/StatusBar";
 import { EvolutionPanel } from "./components/EvolutionPanel";
 import { FundDetail } from "./components/FundDetail";
+import { ShadowPanel } from "./components/ShadowPanel";
 import { useI18n } from "./i18n/context";
 import type { TranslationKey } from "./i18n/translations";
 
@@ -150,6 +151,7 @@ function Layout() {
             <div className="hidden sm:flex items-center gap-1 bg-[var(--r-surface)] border border-[var(--r-border)] rounded-lg p-1">
               <NavLink to="/" className={navClass} end>{t("arena")}</NavLink>
               <NavLink to="/evolution" className={navClass}>{t("evolution")}</NavLink>
+              <NavLink to="/shadow" className={navClass}>{t("shadow")}</NavLink>
         </div>
 
         <button
@@ -188,6 +190,16 @@ function Layout() {
             }
           >
             {t("evolution")}
+          </NavLink>
+          <NavLink
+            to="/shadow"
+            className={({ isActive }) =>
+              `flex-1 px-3 py-2 rounded-md text-sm font-medium text-center transition-all ${
+                isActive ? "bg-[var(--r-accent)] text-white" : "text-[var(--r-text-muted)]"
+              }`
+            }
+          >
+            {t("shadow")}
           </NavLink>
         </div>
 
@@ -395,12 +407,27 @@ function EvolutionPage() {
   );
 }
 
+function ShadowPage() {
+  const { t } = useI18n();
+
+  return (
+    <div>
+      <h2 className="text-sm font-medium text-[var(--r-text-muted)] uppercase tracking-widest mb-1">
+        {t("shadowTitle")}
+      </h2>
+      <p className="text-xs text-[var(--r-text-faint)] mb-4">{t("shadowDesc")}</p>
+      <ShadowPanel />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<ArenaPage />} />
         <Route path="evolution" element={<EvolutionPage />} />
+        <Route path="shadow" element={<ShadowPage />} />
         <Route path="fund/:fundId" element={<FundDetail />} />
       </Route>
     </Routes>
