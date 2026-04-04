@@ -513,12 +513,12 @@ const zh: Record<TranslationKey, string> = {
   signalMultiOutcomeArb: "多结果套利",
   signalSpread: "价差",
 
-  directionBuyYes: "买入 YES",
-  directionSellYes: "卖出 YES",
-  directionBuyBoth: "双向买入",
-  directionSellBoth: "双向卖出",
-  directionBuyStrongest: "买入最强",
-  directionSellWeakest: "卖出最弱",
+  directionBuyYes: "做多",
+  directionSellYes: "做空",
+  directionBuyBoth: "双向做多",
+  directionSellBoth: "双向做空",
+  directionBuyStrongest: "做多最强项",
+  directionSellWeakest: "做空最弱项",
   directionProvideLiquidity: "提供流动性",
 
   sizingFixed: "固定",
