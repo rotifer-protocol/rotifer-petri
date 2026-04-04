@@ -1,0 +1,21 @@
+{
+  "$schema": "https://rotifer.dev/schemas/phenotype/v1.json",
+  "gene": "polymarket-risk",
+  "version": "0.1.0",
+  "fidelity": "native",
+  "description": "Checks open positions for stop-loss breaches and hold-time expirations.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "funds": { "type": "array", "items": { "$ref": "#/definitions/FundConfig" } }
+    },
+    "required": ["funds"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "stopped": { "type": "array", "description": "Trades closed by stop-loss" },
+      "expired": { "type": "array", "description": "Trades closed by max hold days" }
+    }
+  }
+}

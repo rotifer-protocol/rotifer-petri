@@ -1,0 +1,25 @@
+name = "polymarket-agent"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+workers_dev = true
+
+routes = [
+  { pattern = "api.rotifer.xyz", custom_domain = true }
+]
+
+[triggers]
+crons = ["*/30 * * * *", "0 1 * * *", "0 0 * * SUN"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "polymarket-signals"
+database_id = "482e3d91-d775-486a-920c-b61517baa52f"
+
+[durable_objects]
+bindings = [
+  { name = "LIVE_HUB", class_name = "LiveHub" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LiveHub"]

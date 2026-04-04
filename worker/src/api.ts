@@ -1,0 +1,507 @@
+import type { Env, FundConfig } from "./types";
+import { corsHeaders } from "./auth";
+import {
+  calculateCurrentPositionValue,
+  calculateOpenPositionStats,
+  calculateReturnPct,
+  calculateTotalValue,
+  PERFORMANCE_REALIZED_TRADE_WHERE_SQL,
+} from "./accounting";
+import { calcUnrealizedPnl, fetchPrices } from "./price";
+import {
+  countsTowardPerformance,
+  getCloseReasonCode,
+  getCloseReasonText,
+  PERFORMANCE_MONITOR_REASON_SQL,
+  SYSTEM_INVALIDATION_MONITOR_REASON_SQL,
+  toDisplayTradeStatus,
+} from "./trade-semantics";
+
+/**
+ * D-Evo-11/13: Read-only GET endpoints for the frontend.
+ * No authentication required (public data).
+ */
+export async function handleApi(
+  path: string,
+  req: Request,
+  env: Env,
+  funds: FundConfig[],
+): Promise<Response | null> {
+  const origin = req.headers.get("Origin");
+  const headers = corsHeaders(origin);
+
+  if (path === "/api/funds") {
+    return await apiFunds(env.DB, funds, headers);
+  }
+  if (path.startsWith("/api/funds/")) {
+    const fundId = path.slice("/api/funds/".length);
+    return await apiFundDetail(env.DB, funds, fundId, headers);
+  }
+  if (path === "/api/trades") {
+    return await apiTrades(env.DB, req, headers);
+  }
+  if (path === "/api/signals") {
+    return await apiSignals(env.DB, req, headers);
+  }
+  if (path === "/api/snapshots") {
+    return await apiSnapshots(env.DB, req, headers);
+  }
+  if (path === "/api/events") {
+    return await apiEvents(env.DB, req, headers);
+  }
+  if (path === "/api/health") {
+    return Response.json(
+      { status: "ok", timestamp: new Date().toISOString(), funds: funds.length },
+      { headers },
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Live mark-to-market stats from paper_trades.
+ * Total value must be initial + realized + unrealized.
+ * Open principal is already part of cash accounting and must not be added again.
+ */
+async function getFundLiveStats(
+  db: D1Database,
+  fundId: string,
+  initialBalance: number,
+): Promise<{
+  openPositions: number;
+  totalValue: number;
+  returnPct: number;
+  winRate: number;
+  winCount: number;
+  lossCount: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+}> {
+  const openTradesResult = await db.prepare(
+    "SELECT market_id, direction, shares, amount FROM paper_trades WHERE fund_id = ? AND status = 'OPEN'",
+  ).bind(fundId).all<{
+    market_id: string;
+    direction: string;
+    shares: number;
+    amount: number;
+  }>();
+  const openTrades = openTradesResult.results ?? [];
+  const priceMap = openTrades.length > 0
+    ? await fetchPrices(openTrades.map(trade => trade.market_id))
+    : new Map<string, number>();
+  const openStats = calculateOpenPositionStats(openTrades, priceMap);
+
+  const resolved = await db.prepare(
+    `SELECT
+       COALESCE(SUM(pnl),0) as pnl,
+       COUNT(CASE WHEN pnl > 0 THEN 1 END) as wins,
+       COUNT(CASE WHEN pnl < 0 THEN 1 END) as losses
+     FROM paper_trades
+     WHERE fund_id = ? AND ${PERFORMANCE_REALIZED_TRADE_WHERE_SQL}`,
+  ).bind(fundId).first<{ pnl: number; wins: number; losses: number }>();
+
+  const realizedPnl = Number(resolved?.pnl ?? 0);
+  const unrealizedPnl = openStats.unrealizedPnl;
+  const totalValue = calculateTotalValue(initialBalance, realizedPnl, unrealizedPnl);
+  const returnPct = calculateReturnPct(initialBalance, totalValue);
+  const w = Number(resolved?.wins ?? 0);
+  const l = Number(resolved?.losses ?? 0);
+  const winRate = (w + l) > 0 ? w / (w + l) : 0;
+
+  return {
+    openPositions: openStats.openPositions,
+    totalValue,
+    returnPct,
+    winRate,
+    winCount: w,
+    lossCount: l,
+    realizedPnl,
+    unrealizedPnl,
+  };
+}
+
+async function enrichTradesWithLivePrices(
+  trades: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  const openTrades = trades.filter(trade => trade.status === "OPEN");
+  if (openTrades.length === 0) return trades;
+
+  const priceMap = await fetchPrices(
+    openTrades
+      .map(trade => String(trade.market_id ?? ""))
+      .filter(Boolean),
+  );
+
+  return trades.map(trade => {
+    if (trade.status !== "OPEN") return trade;
+
+    const marketId = String(trade.market_id ?? "");
+    const currentPrice = priceMap.get(marketId);
+    if (typeof currentPrice !== "number") {
+      return { ...trade, current_price: null, current_value: null, unrealized_pnl: null, live_return_pct: null };
+    }
+
+    const amount = Number(trade.amount ?? 0);
+    const shares = Number(trade.shares ?? 0);
+    const unrealizedPnl = calcUnrealizedPnl(String(trade.direction ?? ""), shares, amount, currentPrice);
+    const currentValue = calculateCurrentPositionValue(amount, unrealizedPnl);
+    const liveReturnPct = amount > 0 ? (unrealizedPnl / amount) * 100 : 0;
+
+    return {
+      ...trade,
+      current_price: Math.round(currentPrice * 1000) / 1000,
+      current_value: Math.round(currentValue * 100) / 100,
+      unrealized_pnl: Math.round(unrealizedPnl * 100) / 100,
+      live_return_pct: Math.round(liveReturnPct * 100) / 100,
+    };
+  });
+}
+
+function decorateTradeRecord(
+  trade: Record<string, unknown>,
+): Record<string, unknown> {
+  const rawStatus = String(trade.status ?? "");
+  const displayStatus = toDisplayTradeStatus(rawStatus, trade.monitor_reason);
+
+  return {
+    ...trade,
+    raw_status: rawStatus,
+    status: displayStatus,
+    close_reason_code: getCloseReasonCode(rawStatus, trade.monitor_reason),
+    close_reason: getCloseReasonText(rawStatus, trade.monitor_reason),
+    counts_toward_performance: countsTowardPerformance(rawStatus, trade.monitor_reason),
+    is_system_closed: displayStatus === "INVALIDATED",
+  };
+}
+
+async function apiFunds(
+  db: D1Database,
+  funds: FundConfig[],
+  headers: HeadersInit,
+): Promise<Response> {
+  const result = [];
+  for (const fund of funds) {
+    const snap = await db.prepare(
+      "SELECT * FROM portfolio_snapshots WHERE fund_id = ? ORDER BY date DESC LIMIT 1",
+    ).bind(fund.id).first();
+
+    const live = await getFundLiveStats(db, fund.id, fund.initialBalance);
+
+    result.push({
+      id: fund.id,
+      name: fund.name,
+      emoji: fund.emoji,
+      motto: fund.motto,
+      initialBalance: fund.initialBalance,
+      totalValue: Math.round(live.totalValue * 100) / 100,
+      returnPct: Math.round(live.returnPct * 100) / 100,
+      winRate: live.winRate,
+      openPositions: live.openPositions,
+      monthlyTarget: fund.monthlyTarget,
+      drawdownLimit: fund.drawdownLimit,
+      frozen: (snap as any)?.frozen_until
+        ? new Date((snap as any).frozen_until) > new Date()
+        : false,
+    });
+  }
+
+  result.sort((a, b) => b.totalValue - a.totalValue);
+  return Response.json({ funds: result }, { headers });
+}
+
+async function apiFundDetail(
+  db: D1Database,
+  funds: FundConfig[],
+  fundId: string,
+  headers: HeadersInit,
+): Promise<Response> {
+  const fund = funds.find(f => f.id === fundId);
+  if (!fund) {
+    return Response.json({ error: "Fund not found" }, { status: 404, headers });
+  }
+
+  const snap = await db.prepare(
+    "SELECT * FROM portfolio_snapshots WHERE fund_id = ? ORDER BY date DESC LIMIT 1",
+  ).bind(fund.id).first();
+
+  const live = await getFundLiveStats(db, fund.id, fund.initialBalance);
+
+  const configRow = await db.prepare(
+    "SELECT * FROM fund_configs WHERE id = ?",
+  ).bind(fund.id).first();
+
+  const config = configRow ? {
+    allowedTypes: JSON.parse(String((configRow as any).allowed_types || "[]")),
+    monthlyTarget: (configRow as any).monthly_target,
+    minEdge: (configRow as any).min_edge,
+    minConfidence: (configRow as any).min_confidence,
+    minVolume: (configRow as any).min_volume,
+    minLiquidity: (configRow as any).min_liquidity,
+    maxPerEvent: (configRow as any).max_per_event,
+    maxOpenPositions: (configRow as any).max_open_positions,
+    stopLossPercent: (configRow as any).stop_loss_percent,
+    maxHoldDays: (configRow as any).max_hold_days,
+    sizingMode: (configRow as any).sizing_mode,
+    sizingBase: (configRow as any).sizing_base,
+    sizingScale: (configRow as any).sizing_scale,
+    drawdownLimit: (configRow as any).drawdown_limit,
+    drawdownSoftLimit: (configRow as any).drawdown_soft_limit,
+    takeProfitPercent: (configRow as any).take_profit_percent,
+    trailingStopPercent: (configRow as any).trailing_stop_percent,
+    probReversalThreshold: (configRow as any).prob_reversal_threshold,
+    generation: (configRow as any).generation,
+    parentId: (configRow as any).parent_id,
+  } : {
+    allowedTypes: fund.allowedTypes,
+    monthlyTarget: fund.monthlyTarget,
+    minEdge: fund.minEdge,
+    minConfidence: fund.minConfidence,
+    minVolume: fund.minVolume,
+    minLiquidity: fund.minLiquidity,
+    maxPerEvent: fund.maxPerEvent,
+    maxOpenPositions: fund.maxOpenPositions,
+    stopLossPercent: fund.stopLossPercent,
+    maxHoldDays: fund.maxHoldDays,
+    takeProfitPercent: fund.takeProfitPercent,
+    trailingStopPercent: fund.trailingStopPercent,
+    probReversalThreshold: fund.probReversalThreshold,
+    sizingMode: fund.sizingMode,
+    sizingBase: fund.sizingBase,
+    sizingScale: fund.sizingScale,
+    drawdownLimit: fund.drawdownLimit,
+    drawdownSoftLimit: fund.drawdownSoftLimit,
+    generation: 0,
+    parentId: null,
+  };
+
+  return Response.json({
+    fund: {
+      id: fund.id,
+      name: fund.name,
+      emoji: fund.emoji,
+      motto: fund.motto,
+      initialBalance: fund.initialBalance,
+      totalValue: Math.round(live.totalValue * 100) / 100,
+      returnPct: Math.round(live.returnPct * 100) / 100,
+      winRate: live.winRate,
+      openPositions: live.openPositions,
+      monthlyTarget: fund.monthlyTarget,
+      frozen: (snap as any)?.frozen_until
+        ? new Date((snap as any).frozen_until) > new Date()
+        : false,
+      winCount: live.winCount,
+      lossCount: live.lossCount,
+      realizedPnl: Math.round(live.realizedPnl * 100) / 100,
+      unrealizedPnl: Math.round(live.unrealizedPnl * 100) / 100,
+      config,
+    },
+  }, { headers });
+}
+
+async function apiTrades(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const status = (url.searchParams.get("status") || "all").toUpperCase();
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
+  const fundId = url.searchParams.get("fund");
+
+  let query = "SELECT * FROM paper_trades";
+  const conditions: string[] = [];
+  const bindings: any[] = [];
+
+  if (status !== "ALL") {
+    if (status === "CLOSED") {
+      conditions.push("status != 'OPEN'");
+    } else if (status === "INVALIDATED") {
+      conditions.push("status = 'EXPIRED'");
+      conditions.push(SYSTEM_INVALIDATION_MONITOR_REASON_SQL);
+    } else if (status === "EXPIRED") {
+      conditions.push("status = 'EXPIRED'");
+      conditions.push(PERFORMANCE_MONITOR_REASON_SQL);
+    } else {
+      conditions.push("status = ?");
+      bindings.push(status);
+    }
+  }
+  if (fundId) {
+    conditions.push("fund_id = ?");
+    bindings.push(fundId);
+  }
+  if (conditions.length > 0) {
+    query += " WHERE " + conditions.join(" AND ");
+  }
+  query += " ORDER BY COALESCE(closed_at, opened_at) DESC LIMIT ?";
+  bindings.push(limit);
+
+  const stmt = db.prepare(query);
+  const result = await stmt.bind(...bindings).all();
+  const trades = (await enrichTradesWithLivePrices((result.results || []) as Array<Record<string, unknown>>))
+    .map(decorateTradeRecord);
+
+  return Response.json(
+    { trades, total: trades.length },
+    { headers },
+  );
+}
+
+async function apiSignals(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "30"), 100);
+
+  const result = await db.prepare(
+    "SELECT * FROM signals ORDER BY created_at DESC LIMIT ?",
+  ).bind(limit).all();
+
+  return Response.json(
+    { signals: result.results || [], total: result.results?.length ?? 0 },
+    { headers },
+  );
+}
+
+async function apiEvents(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "30"), 100);
+
+  const events: Array<{ type: string; timestamp: string; payload: Record<string, unknown> }> = [];
+
+  const scans = await db.prepare(
+    "SELECT scanned_at, total_fetched, markets_filtered, signals_found, avg_edge FROM scans ORDER BY scanned_at DESC LIMIT ?",
+  ).bind(Math.ceil(limit / 3)).all();
+  for (const s of scans.results || []) {
+    const row = s as Record<string, unknown>;
+    events.push({
+      type: "SCAN_COMPLETE",
+      timestamp: String(row.scanned_at),
+      payload: {
+        totalFetched: row.total_fetched,
+        marketsFiltered: row.markets_filtered,
+        signalsFound: row.signals_found,
+        avgEdge: row.avg_edge,
+      },
+    });
+  }
+
+  const trades = await db.prepare(
+    `SELECT fund_id, question, direction, amount, status, pnl, slug, opened_at, closed_at,
+            entry_price, exit_price, monitor_reason
+     FROM paper_trades
+     ORDER BY COALESCE(closed_at, opened_at) DESC
+     LIMIT ?`,
+  ).bind(Math.ceil(limit / 2)).all();
+  for (const t of trades.results || []) {
+    const row = t as Record<string, unknown>;
+    if (row.status === "OPEN") {
+      events.push({
+        type: "TRADE_OPENED",
+        timestamp: String(row.opened_at),
+        payload: {
+          fundId: row.fund_id,
+          fundName: row.fund_id,
+          amount: row.amount,
+          slug: row.slug ?? "",
+          question: row.question,
+          direction: row.direction,
+          price: row.entry_price,
+          entryPrice: row.entry_price,
+        },
+      });
+    } else {
+      const displayStatus = toDisplayTradeStatus(row.status, row.monitor_reason);
+      const statusMap: Record<string, string> = {
+        STOPPED: "TRADE_STOPPED",
+        EXPIRED: "TRADE_EXPIRED",
+        INVALIDATED: "TRADE_INVALIDATED",
+        PROFIT_TAKEN: "TRADE_PROFIT_TAKEN",
+        TRAILING_STOPPED: "TRADE_TRAILING_STOPPED",
+        REVERSED: "TRADE_REVERSED",
+        RESOLVED: "TRADE_SETTLED",
+      };
+      const type = statusMap[displayStatus] ?? "TRADE_SETTLED";
+      events.push({
+        type,
+        timestamp: String(row.closed_at || row.opened_at),
+        payload: {
+          fundId: row.fund_id,
+          fundName: row.fund_id,
+          pnl: row.pnl,
+          slug: row.slug ?? "",
+          question: row.question,
+          direction: row.direction,
+          entryPrice: row.entry_price,
+          exitPrice: row.exit_price,
+          rawStatus: row.status,
+          status: displayStatus,
+          closeReasonCode: getCloseReasonCode(row.status, row.monitor_reason),
+          reason: getCloseReasonText(row.status, row.monitor_reason),
+        },
+      });
+    }
+  }
+
+  const signals = await db.prepare(
+    `SELECT signal_id, type, market_id, slug, question, description, edge, confidence, direction, prices, created_at
+     FROM signals
+     ORDER BY created_at DESC
+     LIMIT ?`,
+  ).bind(Math.ceil(limit / 3)).all();
+  for (const s of signals.results || []) {
+    const row = s as Record<string, unknown>;
+    events.push({
+      type: "SIGNAL_FOUND",
+      timestamp: String(row.created_at),
+      payload: {
+        signalId: row.signal_id,
+        type: row.type,
+        edge: row.edge,
+        confidence: row.confidence,
+        direction: row.direction,
+        marketId: row.market_id,
+        slug: row.slug ?? "",
+        question: row.question,
+        description: row.description,
+        prices: row.prices,
+      },
+    });
+  }
+
+  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return Response.json(
+    { events: events.slice(0, limit) },
+    { headers },
+  );
+}
+
+async function apiSnapshots(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const fundId = url.searchParams.get("fund");
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "30"), 90);
+
+  if (fundId) {
+    const result = await db.prepare(
+      "SELECT * FROM portfolio_snapshots WHERE fund_id = ? ORDER BY date DESC LIMIT ?",
+    ).bind(fundId, limit).all();
+    return Response.json({ snapshots: result.results || [] }, { headers });
+  }
+
+  const result = await db.prepare(
+    "SELECT * FROM portfolio_snapshots ORDER BY date DESC LIMIT ?",
+  ).bind(limit * 5).all();
+  return Response.json({ snapshots: result.results || [] }, { headers });
+}

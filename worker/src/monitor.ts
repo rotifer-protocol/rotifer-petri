@@ -1,0 +1,167 @@
+import type { FundConfig, TradeStatus } from "./types";
+import { fetchPrices, calcUnrealizedPnl } from "./price";
+
+export interface MonitorAction {
+  tradeId: string;
+  fundId: string;
+  marketId: string;
+  slug: string;
+  question: string;
+  newStatus: TradeStatus;
+  pnl: number;
+  reason: string;
+  currentPrice: number;
+  entryPrice: number;
+}
+
+export interface MonitorResult {
+  actions: MonitorAction[];
+  highWaterMarkUpdates: Array<{ tradeId: string; hwm: number }>;
+}
+
+interface OpenTrade {
+  id: string;
+  fund_id: string;
+  market_id: string;
+  question: string;
+  direction: string;
+  entry_price: number;
+  shares: number;
+  amount: number;
+  high_water_mark: number | null;
+  slug: string;
+}
+
+export async function monitor(
+  db: D1Database,
+  funds: FundConfig[],
+): Promise<MonitorResult> {
+  const result: MonitorResult = { actions: [], highWaterMarkUpdates: [] };
+
+  const allOpen = await db.prepare(
+    "SELECT id, fund_id, market_id, question, direction, entry_price, shares, amount, high_water_mark, slug FROM paper_trades WHERE status = 'OPEN'",
+  ).all();
+  const trades = (allOpen.results ?? []) as unknown as OpenTrade[];
+  if (trades.length === 0) return result;
+
+  const fundMap = new Map(funds.map(f => [f.id, f]));
+  const marketIds = trades.map(t => t.market_id);
+  const priceMap = await fetchPrices(marketIds);
+
+  for (const trade of trades) {
+    const fund = fundMap.get(trade.fund_id);
+    if (!fund) continue;
+
+    const currentPrice = priceMap.get(trade.market_id);
+    if (currentPrice === undefined) continue;
+
+    const unrealized = calcUnrealizedPnl(trade.direction, trade.shares, trade.amount, currentPrice);
+    const returnPct = unrealized / trade.amount;
+
+    // --- Take Profit ---
+    if (returnPct >= fund.takeProfitPercent) {
+      result.actions.push({
+        tradeId: trade.id,
+        fundId: trade.fund_id,
+        marketId: trade.market_id,
+        slug: trade.slug ?? "",
+        question: trade.question,
+        newStatus: "PROFIT_TAKEN",
+        pnl: Math.round(unrealized * 100) / 100,
+        reason: `Take profit triggered at ${(returnPct * 100).toFixed(1)}% (threshold: ${(fund.takeProfitPercent * 100).toFixed(0)}%)`,
+        currentPrice,
+        entryPrice: trade.entry_price,
+      });
+      continue;
+    }
+
+    // --- Trailing Stop ---
+    const hwm = trade.high_water_mark ?? trade.entry_price;
+    let newHwm = hwm;
+    if (currentPrice > hwm) {
+      newHwm = currentPrice;
+      result.highWaterMarkUpdates.push({ tradeId: trade.id, hwm: newHwm });
+    }
+    if (newHwm > trade.entry_price) {
+      const dropFromHwm = (newHwm - currentPrice) / newHwm;
+      if (dropFromHwm >= fund.trailingStopPercent) {
+        const pnl = calcUnrealizedPnl(trade.direction, trade.shares, trade.amount, currentPrice);
+        result.actions.push({
+          tradeId: trade.id,
+          fundId: trade.fund_id,
+          marketId: trade.market_id,
+          slug: trade.slug ?? "",
+          question: trade.question,
+          newStatus: "TRAILING_STOPPED",
+          pnl: Math.round(pnl * 100) / 100,
+          reason: `Trailing stop: price dropped ${(dropFromHwm * 100).toFixed(1)}% from HWM ${newHwm.toFixed(3)} (threshold: ${(fund.trailingStopPercent * 100).toFixed(0)}%)`,
+          currentPrice,
+          entryPrice: trade.entry_price,
+        });
+        continue;
+      }
+    }
+
+    // --- Probability Reversal ---
+    if (trade.direction === "BUY_YES" && currentPrice < trade.entry_price) {
+      const reversal = trade.entry_price - currentPrice;
+      if (reversal >= fund.probReversalThreshold) {
+        const pnl = calcUnrealizedPnl(trade.direction, trade.shares, trade.amount, currentPrice);
+        result.actions.push({
+          tradeId: trade.id,
+          fundId: trade.fund_id,
+          marketId: trade.market_id,
+          slug: trade.slug ?? "",
+          question: trade.question,
+          newStatus: "REVERSED",
+          pnl: Math.round(pnl * 100) / 100,
+          reason: `Probability reversed by ${(reversal * 100).toFixed(1)}pp (threshold: ${(fund.probReversalThreshold * 100).toFixed(0)}pp)`,
+          currentPrice,
+          entryPrice: trade.entry_price,
+        });
+        continue;
+      }
+    }
+    if (trade.direction === "SELL_YES" && currentPrice > trade.entry_price) {
+      const reversal = currentPrice - trade.entry_price;
+      if (reversal >= fund.probReversalThreshold) {
+        const pnl = calcUnrealizedPnl(trade.direction, trade.shares, trade.amount, currentPrice);
+        result.actions.push({
+          tradeId: trade.id,
+          fundId: trade.fund_id,
+          marketId: trade.market_id,
+          slug: trade.slug ?? "",
+          question: trade.question,
+          newStatus: "REVERSED",
+          pnl: Math.round(pnl * 100) / 100,
+          reason: `Probability reversed by ${(reversal * 100).toFixed(1)}pp against short (threshold: ${(fund.probReversalThreshold * 100).toFixed(0)}pp)`,
+          currentPrice,
+          entryPrice: trade.entry_price,
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+export async function executeMonitorActions(
+  db: D1Database,
+  monitorResult: MonitorResult,
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  for (const hwm of monitorResult.highWaterMarkUpdates) {
+    const alreadyClosed = monitorResult.actions.some(a => a.tradeId === hwm.tradeId);
+    if (alreadyClosed) continue;
+    await db.prepare(
+      "UPDATE paper_trades SET high_water_mark = ? WHERE id = ?",
+    ).bind(hwm.hwm, hwm.tradeId).run();
+  }
+
+  for (const action of monitorResult.actions) {
+    await db.prepare(
+      "UPDATE paper_trades SET status = ?, exit_price = ?, pnl = ?, closed_at = ?, monitor_reason = ? WHERE id = ?",
+    ).bind(action.newStatus, action.currentPrice, action.pnl, now, action.reason, action.tradeId).run();
+  }
+}

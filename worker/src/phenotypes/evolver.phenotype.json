@@ -1,0 +1,33 @@
+{
+  "$schema": "https://rotifer.dev/schemas/phenotype/v1.json",
+  "gene": "polymarket-evolver",
+  "version": "0.1.0",
+  "fidelity": "native",
+  "description": "Dual-layer evolution engine: micro-evolution (data-driven, per-pipeline) and macro-evolution (PBT, weekly).",
+  "input": {
+    "type": "object",
+    "properties": {
+      "mode": { "type": "string", "enum": ["micro", "macro"] },
+      "funds": { "type": "array", "items": { "$ref": "#/definitions/FundConfig" } }
+    },
+    "required": ["mode", "funds"]
+  },
+  "output": {
+    "oneOf": [
+      {
+        "type": "object",
+        "description": "Micro-evolution output",
+        "properties": {
+          "results": { "type": "array", "items": { "$ref": "#/definitions/MicroEvolveResult" } }
+        }
+      },
+      {
+        "type": "object",
+        "description": "Macro-evolution output",
+        "properties": {
+          "report": { "$ref": "#/definitions/EvolutionReport" }
+        }
+      }
+    ]
+  }
+}

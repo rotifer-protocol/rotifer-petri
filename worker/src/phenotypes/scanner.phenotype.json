@@ -1,0 +1,26 @@
+{
+  "$schema": "https://rotifer.dev/schemas/phenotype/v1.json",
+  "gene": "polymarket-scanner",
+  "version": "0.1.0",
+  "fidelity": "native",
+  "description": "Scans Polymarket Gamma API for markets, filters by volume/liquidity, and identifies arbitrage signals.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "scanLimit": { "type": "integer", "default": 200, "description": "Max markets to fetch per scan" },
+      "minVolume": { "type": "integer", "default": 5000, "description": "Min 24h volume filter" },
+      "minLiquidity": { "type": "integer", "default": 5000, "description": "Min liquidity filter" }
+    },
+    "required": ["scanLimit", "minVolume", "minLiquidity"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "markets": { "type": "array", "items": { "$ref": "#/definitions/MarketSnapshot" } },
+      "filtered": { "type": "array", "items": { "$ref": "#/definitions/MarketSnapshot" } },
+      "signals": { "type": "array", "items": { "$ref": "#/definitions/ArbSignal" } },
+      "totalFetched": { "type": "integer" },
+      "avgEdge": { "type": "number" }
+    }
+  }
+}

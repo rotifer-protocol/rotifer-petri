@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/*
+ * Rotifer Design Tokens — aligned with rotifer-xyz/app globals.css
+ * L0 Brand Foundation: Zinc palette, system font stack, glassmorphism
+ * L1 Site Identity: teal accent
+ */
+
+:root {
+  --r-bg: #09090b;
+  --r-surface: #111113;
+  --r-surface-hover: #1a1a1f;
+  --r-border: #27272a;
+  --r-border-hover: #3f3f46;
+  --r-text: #fafafa;
+  --r-text-muted: #a1a1aa;
+  --r-text-faint: #71717a;
+  --r-code-bg: rgba(0, 0, 0, 0.3);
+
+  --r-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --r-font-mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
+
+  --r-accent: hsl(174, 50%, 42%);
+  --r-accent-hover: hsl(174, 50%, 52%);
+  --r-accent-dim: hsla(174, 50%, 42%, 0.12);
+  --r-accent-fg: #09090b;
+  --r-accent-glow: hsla(174, 50%, 42%, 0.3);
+
+  --r-green: #22c55e;
+  --r-red: #ef4444;
+  --r-yellow: #eab308;
+
+  --r-success: #22c55e;
+  --r-success-dim: rgba(34, 197, 94, 0.12);
+  --r-warning: #eab308;
+  --r-warning-dim: rgba(234, 179, 8, 0.12);
+  --r-danger: #ef4444;
+  --r-danger-dim: rgba(239, 68, 68, 0.12);
+
+  --r-overlay-3: rgba(255, 255, 255, 0.03);
+  --r-overlay-6: rgba(255, 255, 255, 0.06);
+  --r-overlay-10: rgba(255, 255, 255, 0.10);
+}
+
+body {
+  font-family: var(--r-font-sans);
+  background: var(--r-bg);
+  color: var(--r-text);
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  min-height: 100vh;
+}
+
+.glass-card {
+  background: color-mix(in srgb, var(--r-surface) 72%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--r-border);
+  border-radius: 10px;
+}
+
+.glass-card:hover {
+  border-color: var(--r-border-hover);
+}
+
+.glass-card-active {
+  border-color: var(--r-accent);
+  box-shadow: 0 0 20px var(--r-accent-glow);
+}
+
+.gradient-heading {
+  background: linear-gradient(90deg, var(--r-text-muted), var(--r-text) 50%, var(--r-text-muted));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--r-accent-glow); }
+  50% { box-shadow: 0 0 15px 5px var(--r-accent-glow); }
+}
+
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 0 0 var(--r-accent-dim); }
+  50% { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes flash-highlight {
+  0% { background-color: hsla(174, 50%, 42%, 0.15); }
+  100% { background-color: transparent; }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.4s ease-out forwards, flash-highlight 0.8s ease-out 0.4s forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.pulse-accent {
+  animation: pulse-accent 2s ease-in-out infinite;
+}
+
+.pnl-positive { color: var(--r-green); }
+.pnl-negative { color: var(--r-red); }
+
+.border-l-3 { border-left-width: 3px; }
+
+.tabular-nums { font-variant-numeric: tabular-nums; }

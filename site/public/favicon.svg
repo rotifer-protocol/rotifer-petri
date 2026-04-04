@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <style>
+    circle, path { stroke: #2dd4bf; }
+    @media (prefers-color-scheme: light) {
+      circle, path { stroke: #0d9488; }
+    }
+  </style>
+  <!-- Petri dish outer ring -->
+  <circle cx="16" cy="16" r="13" stroke-width="2"/>
+  <!-- Vortex arm 1 — upper, longer -->
+  <path d="M9 10 C14 6 23 9 23 16" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Vortex arm 2 — lower, shorter (organic asymmetry) -->
+  <path d="M23 22 C18 26 9 23 9 16" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

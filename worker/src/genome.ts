@@ -1,0 +1,309 @@
+/**
+ * Phase 3: Genome Orchestrator (ADR-199 §3.2)
+ *
+ * Wraps the pipeline stages as Gene-compatible steps with typed I/O.
+ * The orchestration follows a Seq pattern:
+ *   risk → scanner → monitor → settler → trader → micro-evolver
+ *
+ * This is the internal restructuring step — once Rotifer v0.9 Composition
+ * spec is finalized, each step can be extracted into an independent Gene
+ * and this file becomes the Genome Controller.
+ */
+
+import type { Env, FundConfig, AgentEvent, AgentEventType } from "./types";
+import type {
+  ScannerInput, ScannerOutput,
+  RiskOutput,
+  MonitorOutput,
+  SettlerOutput,
+  TraderOutput,
+  MicroEvolverOutput,
+  GenomePipelineResult,
+} from "./gene-interface";
+
+import { scan, analyze } from "./scan";
+import { checkRiskLimits } from "./risk";
+import { monitor, executeMonitorActions } from "./monitor";
+import { settle } from "./settle";
+import { paperTrade } from "./trade";
+import { checkAndRunMicroEvolution } from "./micro-evolve";
+import { broadcast, sendSignals, sendTrades, sendSummary } from "./notify";
+
+// ─── Gene Step: Scanner ─────────────────────────────────
+
+async function runScannerGene(
+  input: ScannerInput,
+): Promise<ScannerOutput> {
+  const { markets, totalFetched } = await scan(input.scanLimit);
+  const filtered = markets.filter(
+    m => m.volume24hr >= input.minVolume && m.liquidity >= input.minLiquidity,
+  );
+  const signals = analyze(filtered, new Date().toISOString());
+  const avgEdge = signals.length > 0
+    ? Math.round((signals.reduce((s, x) => s + x.edge, 0) / signals.length) * 100) / 100
+    : 0;
+
+  return { markets, filtered, signals, totalFetched, avgEdge };
+}
+
+// ─── Gene Step: Risk ────────────────────────────────────
+
+async function runRiskGene(
+  db: D1Database,
+  funds: FundConfig[],
+): Promise<RiskOutput> {
+  return await checkRiskLimits(db, funds);
+}
+
+// ─── Gene Step: Monitor ─────────────────────────────────
+
+async function runMonitorGene(
+  db: D1Database,
+  funds: FundConfig[],
+): Promise<MonitorOutput> {
+  const result = await monitor(db, funds);
+  await executeMonitorActions(db, result);
+  return result;
+}
+
+// ─── Gene Step: Settler ─────────────────────────────────
+
+async function runSettlerGene(
+  db: D1Database,
+  markets: import("./types").MarketSnapshot[],
+  funds: FundConfig[],
+): Promise<SettlerOutput> {
+  const settlements = await settle(db, markets, funds);
+  return { settlements };
+}
+
+// ─── Gene Step: Trader ──────────────────────────────────
+
+async function runTraderGene(
+  db: D1Database,
+  signals: import("./types").ArbSignal[],
+  markets: import("./types").MarketSnapshot[],
+  funds: FundConfig[],
+  ts: string,
+): Promise<TraderOutput> {
+  const trades = await paperTrade(db, signals, markets, funds, ts);
+  return { trades };
+}
+
+// ─── Gene Step: Micro-Evolver ───────────────────────────
+
+async function runMicroEvolverGene(
+  db: D1Database,
+  funds: FundConfig[],
+): Promise<MicroEvolverOutput> {
+  const results = await checkAndRunMicroEvolution(db, funds);
+  return { results };
+}
+
+// ─── Genome Orchestrator ────────────────────────────────
+
+export async function runGenomePipeline(
+  env: Env,
+  funds: FundConfig[],
+): Promise<GenomePipelineResult> {
+  const ts = new Date().toISOString();
+  const events: AgentEvent[] = [];
+
+  function emit(type: AgentEventType, payload: Record<string, unknown>): void {
+    events.push({ type, timestamp: ts, payload });
+  }
+
+  // Step 1: Risk checks (stop-loss, expiry)
+  const risk = await runRiskGene(env.DB, funds);
+
+  for (const s of risk.stopped) {
+    emit("TRADE_STOPPED", {
+      fundId: s.fundId,
+      fundEmoji: s.fundEmoji,
+      slug: s.slug,
+      question: s.question,
+      pnl: s.pnl,
+      entryPrice: s.entryPrice,
+      exitPrice: s.exitPrice,
+      reason: "Stop loss triggered.",
+    });
+  }
+  for (const e of risk.expired) {
+    emit("TRADE_EXPIRED", {
+      fundId: e.fundId,
+      fundEmoji: e.fundEmoji,
+      slug: e.slug,
+      question: e.question,
+      pnl: e.pnl,
+      entryPrice: e.entryPrice,
+      exitPrice: e.exitPrice,
+      reason: "Max hold window reached.",
+    });
+  }
+
+  // Step 2: Scanner
+  let scanner: ScannerOutput;
+  try {
+    scanner = await runScannerGene({
+      scanLimit: Number(env.SCAN_LIMIT) || 200,
+      minVolume: Number(env.MIN_VOLUME) || 5000,
+      minLiquidity: Number(env.MIN_LIQUIDITY) || 5000,
+    });
+  } catch (e) {
+    emit("ERROR", { stage: "scan", message: String(e) });
+    return {
+      scanner: { markets: [], filtered: [], signals: [], totalFetched: 0, avgEdge: 0 },
+      risk,
+      monitor: { actions: [], highWaterMarkUpdates: [] },
+      settler: { settlements: [] },
+      trader: { trades: [] },
+      microEvolver: { results: [] },
+      events,
+      timestamp: ts,
+    };
+  }
+
+  await recordScan(env.DB, crypto.randomUUID(), ts, scanner);
+
+  const topMarkets = [...scanner.filtered]
+    .sort((a, b) => b.volume24hr - a.volume24hr)
+    .slice(0, 5)
+    .map(m => ({ question: m.question, volume24hr: Math.round(m.volume24hr), liquidity: Math.round(m.liquidity) }));
+
+  emit("SCAN_COMPLETE", {
+    totalFetched: scanner.totalFetched,
+    marketsFiltered: scanner.filtered.length,
+    signalsFound: scanner.signals.length,
+    avgEdge: scanner.avgEdge,
+    topMarkets,
+  });
+
+  for (const sig of scanner.signals) {
+    emit("SIGNAL_FOUND", {
+      signalId: sig.signalId, type: sig.type, slug: sig.slug, question: sig.question,
+      edge: sig.edge, confidence: sig.confidence, direction: sig.direction,
+      volume24hr: sig.prices["volume24hr"] ?? 0,
+      liquidity: sig.prices["liquidity"] ?? 0,
+    });
+  }
+
+  // Step 3: Settler
+  const settler = await runSettlerGene(env.DB, scanner.markets, funds);
+  for (const s of settler.settlements) {
+    emit("TRADE_SETTLED", {
+      fundId: s.fundId,
+      fundEmoji: s.fundEmoji,
+      slug: s.slug,
+      question: s.question,
+      pnl: s.pnl,
+      entryPrice: s.entryPrice,
+      exitPrice: s.exitPrice,
+      reason: "Market resolved on Polymarket.",
+    });
+  }
+
+  // Step 4: Monitor (active selling)
+  const monitorOut = await runMonitorGene(env.DB, funds);
+  for (const ma of monitorOut.actions) {
+    const eventType = ma.newStatus === "PROFIT_TAKEN" ? "TRADE_PROFIT_TAKEN"
+      : ma.newStatus === "TRAILING_STOPPED" ? "TRADE_TRAILING_STOPPED"
+      : "TRADE_REVERSED";
+    emit(eventType as AgentEventType, {
+      fundId: ma.fundId,
+      slug: ma.slug,
+      question: ma.question,
+      pnl: ma.pnl,
+      reason: ma.reason,
+      entryPrice: ma.entryPrice,
+      exitPrice: ma.currentPrice,
+    });
+  }
+
+  // Step 5: Trader
+  const trader = await runTraderGene(env.DB, scanner.signals, scanner.filtered, funds, ts);
+  for (const t of trader.trades) {
+    emit("TRADE_OPENED", {
+      fundId: t.fundId, fundName: t.fundName, fundEmoji: t.fundEmoji,
+      signalId: t.signalId, slug: t.slug, question: t.question,
+      direction: t.direction, price: t.price, amount: t.amount,
+    });
+  }
+
+  // Step 6: Micro-Evolution
+  const microEvolver = await runMicroEvolverGene(env.DB, funds);
+  for (const mr of microEvolver.results) {
+    if (!mr.triggered) continue;
+    emit("MICRO_EVOLUTION", {
+      fundId: mr.fundId,
+      fundName: mr.fundName,
+      adjustedParams: mr.adjustments.length,
+      adjustments: mr.adjustments,
+      trigger: mr.trigger,
+    });
+  }
+
+  // Broadcast all collected events
+  for (const event of events) {
+    await broadcast(env, event);
+  }
+
+  // Notifications
+  const { ok, fail } = await sendSignals(env, scanner.signals);
+  if (trader.trades.length > 0) await sendTrades(env, trader.trades);
+  await sendSummary(env, scanner.filtered.length, scanner.signals.length, scanner.avgEdge, ok, fail, trader.trades, ts);
+
+  return {
+    scanner,
+    risk,
+    monitor: monitorOut,
+    settler,
+    trader,
+    microEvolver,
+    events,
+    timestamp: ts,
+  };
+}
+
+// ─── Genome Blueprint (for future export) ───────────────
+
+export const GENOME_BLUEPRINT = {
+  id: "petri-polymarket-pipeline",
+  version: "0.1.0",
+  description: "Polymarket prediction market trading pipeline with dual-layer evolution",
+  orchestration: {
+    type: "Seq" as const,
+    steps: [
+      { gene: "polymarket-risk", id: "risk" },
+      { gene: "polymarket-scanner", id: "scan" },
+      { gene: "polymarket-settler", id: "settle", input: { markets: "{{scan.output.markets}}" } },
+      { gene: "polymarket-monitor", id: "monitor" },
+      { gene: "polymarket-trader", id: "trade", input: { signals: "{{scan.output.signals}}" } },
+      { gene: "polymarket-evolver", id: "micro", input: { mode: "micro" } },
+    ],
+  },
+};
+
+// ─── Internal helpers ───────────────────────────────────
+
+async function recordScan(
+  db: D1Database,
+  scanId: string,
+  ts: string,
+  scanner: ScannerOutput,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO scans (id, scanned_at, total_fetched, markets_filtered, signals_found, avg_edge)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).bind(scanId, ts, scanner.totalFetched, scanner.filtered.length, scanner.signals.length, scanner.avgEdge).run();
+
+  for (const sig of scanner.signals) {
+    await db.prepare(
+      `INSERT INTO signals (id, scan_id, type, question, market_id, slug, direction, edge, confidence, prices, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sig.signalId, scanId, sig.type, sig.question, sig.marketId,
+      sig.slug ?? "", sig.direction, sig.edge, sig.confidence,
+      JSON.stringify(sig.prices), ts,
+    ).run();
+  }
+}

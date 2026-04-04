@@ -1,0 +1,21 @@
+{
+  "$schema": "https://rotifer.dev/schemas/phenotype/v1.json",
+  "gene": "polymarket-monitor",
+  "version": "0.1.0",
+  "fidelity": "native",
+  "description": "Active position monitoring: take-profit, trailing stop, and probability reversal detection.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "funds": { "type": "array", "items": { "$ref": "#/definitions/FundConfig" } }
+    },
+    "required": ["funds"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "actions": { "type": "array", "description": "Monitor-triggered close actions" },
+      "highWaterMarkUpdates": { "type": "array", "description": "Updated high water marks for open positions" }
+    }
+  }
+}

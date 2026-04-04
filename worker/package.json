@@ -1,0 +1,15 @@
+{
+  "name": "polymarket-agent-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --import tsx --test tests/accounting.test.ts tests/trade-semantics.test.ts tests/monitor.test.ts tests/api-events.test.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "tsx": "^4.21.0",
+    "wrangler": "^4.0.0"
+  }
+}

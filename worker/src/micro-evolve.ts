@@ -1,0 +1,258 @@
+import type { FundConfig } from "./types";
+import { PERFORMANCE_REALIZED_TRADE_WHERE_SQL } from "./accounting";
+
+/**
+ * Phase 2: Data-driven micro-evolution engine (ADR-199).
+ *
+ * Triggered per-fund when >=20 closed trades accumulate since last micro-evolve.
+ * Analyzes recent trade outcomes to compute a local gradient for evolvable params,
+ * then nudges each param by ±2% of its range toward better performance.
+ */
+
+const MICRO_TRADE_THRESHOLD = 20;
+const MICRO_ADJUST_RATIO = 0.02;
+
+interface ParamBound {
+  min: number;
+  max: number;
+  integer?: boolean;
+}
+
+const PARAM_BOUNDS: Record<string, ParamBound> = {
+  minEdge:               { min: 0,    max: 10 },
+  minConfidence:         { min: 0,    max: 1 },
+  maxPerEvent:           { min: 50,   max: 2000, integer: true },
+  maxOpenPositions:      { min: 3,    max: 20,   integer: true },
+  stopLossPercent:       { min: 0.05, max: 0.30 },
+  maxHoldDays:           { min: 3,    max: 30,   integer: true },
+  takeProfitPercent:     { min: 0.05, max: 2.0 },
+  trailingStopPercent:   { min: 0.03, max: 0.50 },
+  probReversalThreshold: { min: 0.05, max: 0.50 },
+  sizingBase:            { min: 50,   max: 500,  integer: true },
+  sizingScale:           { min: 0,    max: 500,  integer: true },
+};
+
+function clampParam(name: string, value: number): number {
+  const bound = PARAM_BOUNDS[name];
+  if (!bound) return value;
+  let v = Math.max(bound.min, Math.min(bound.max, value));
+  if (bound.integer) v = Math.round(v);
+  return Math.round(v * 10000) / 10000;
+}
+
+export interface MicroAdjustment {
+  param: string;
+  before: number;
+  after: number;
+  direction: "up" | "down";
+}
+
+export interface MicroEvolveResult {
+  fundId: string;
+  fundName: string;
+  triggered: boolean;
+  tradesSinceLast: number;
+  adjustments: MicroAdjustment[];
+  trigger: string;
+}
+
+interface ClosedTrade {
+  pnl: number;
+  status: string;
+  monitor_reason: string | null;
+  closed_at: string;
+  amount: number;
+  entry_price: number;
+  direction: string;
+  max_hold_days_used?: number;
+}
+
+export async function checkAndRunMicroEvolution(
+  db: D1Database,
+  funds: FundConfig[],
+): Promise<MicroEvolveResult[]> {
+  const results: MicroEvolveResult[] = [];
+  const now = new Date().toISOString();
+
+  for (const fund of funds) {
+    const meta = await db.prepare(
+      "SELECT last_micro_evolve_at, micro_evolve_count FROM fund_configs WHERE id = ?",
+    ).bind(fund.id).first<{ last_micro_evolve_at: string | null; micro_evolve_count: number }>();
+
+    const lastMicro = meta?.last_micro_evolve_at ?? "1970-01-01T00:00:00Z";
+
+    const closedSinceLast = await db.prepare(
+      `SELECT pnl, status, monitor_reason, closed_at, amount, entry_price, direction
+       FROM paper_trades
+       WHERE fund_id = ? AND ${PERFORMANCE_REALIZED_TRADE_WHERE_SQL}
+       AND closed_at > ?
+       ORDER BY closed_at ASC`,
+    ).bind(fund.id, lastMicro).all();
+
+    const trades = (closedSinceLast.results ?? []) as unknown as ClosedTrade[];
+
+    if (trades.length < MICRO_TRADE_THRESHOLD) {
+      results.push({
+        fundId: fund.id,
+        fundName: fund.name,
+        triggered: false,
+        tradesSinceLast: trades.length,
+        adjustments: [],
+        trigger: `${trades.length}/${MICRO_TRADE_THRESHOLD} trades`,
+      });
+      continue;
+    }
+
+    const adjustments = analyzeAndAdjust(trades, fund);
+
+    if (adjustments.length > 0) {
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+
+      const fieldMap: Record<string, string> = {
+        minEdge: "min_edge",
+        minConfidence: "min_confidence",
+        maxPerEvent: "max_per_event",
+        maxOpenPositions: "max_open_positions",
+        stopLossPercent: "stop_loss_percent",
+        maxHoldDays: "max_hold_days",
+        takeProfitPercent: "take_profit_percent",
+        trailingStopPercent: "trailing_stop_percent",
+        probReversalThreshold: "prob_reversal_threshold",
+        sizingBase: "sizing_base",
+        sizingScale: "sizing_scale",
+      };
+
+      for (const adj of adjustments) {
+        const col = fieldMap[adj.param];
+        if (col) {
+          setClauses.push(`${col} = ?`);
+          values.push(adj.after);
+        }
+      }
+
+      setClauses.push("last_micro_evolve_at = ?", "micro_evolve_count = ?", "updated_at = ?");
+      values.push(now, (meta?.micro_evolve_count ?? 0) + 1, now);
+      values.push(fund.id);
+
+      await db.prepare(
+        `UPDATE fund_configs SET ${setClauses.join(", ")} WHERE id = ?`,
+      ).bind(...values).run();
+
+      const paramsBefore: Record<string, unknown> = {};
+      const paramsAfter: Record<string, unknown> = {};
+      for (const adj of adjustments) {
+        paramsBefore[adj.param] = adj.before;
+        paramsAfter[adj.param] = adj.after;
+      }
+      await db.prepare(
+        `INSERT INTO evolution_log (id, epoch, executed_at, action, fund_id, params_before, params_after, fitness_before, fitness_after, reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        -1,
+        now,
+        "MICRO_EVOLUTION",
+        fund.id,
+        JSON.stringify(paramsBefore),
+        JSON.stringify(paramsAfter),
+        null,
+        null,
+        `Data-driven micro-adjustment from ${trades.length} trades`,
+      ).run();
+    } else {
+      await db.prepare(
+        "UPDATE fund_configs SET last_micro_evolve_at = ?, updated_at = ? WHERE id = ?",
+      ).bind(now, now, fund.id).run();
+    }
+
+    results.push({
+      fundId: fund.id,
+      fundName: fund.name,
+      triggered: true,
+      tradesSinceLast: trades.length,
+      adjustments,
+      trigger: `${trades.length} trades since last micro-evolve`,
+    });
+  }
+
+  return results;
+}
+
+function analyzeAndAdjust(trades: ClosedTrade[], fund: FundConfig): MicroAdjustment[] {
+  const adjustments: MicroAdjustment[] = [];
+  const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+  const winRate = trades.filter(t => t.pnl > 0).length / trades.length;
+  const avgPnl = totalPnl / trades.length;
+
+  const stopLossCount = trades.filter(t => t.status === "STOPPED").length;
+  const profitTakenCount = trades.filter(t => t.status === "PROFIT_TAKEN").length;
+  const trailingStoppedCount = trades.filter(t => t.status === "TRAILING_STOPPED").length;
+  const reversedCount = trades.filter(t => t.status === "REVERSED").length;
+  const expiredCount = trades.filter(t => t.status === "EXPIRED").length;
+
+  // --- Stop-loss tuning ---
+  const stopLossRate = stopLossCount / trades.length;
+  if (stopLossRate > 0.4) {
+    adjustments.push(nudge("stopLossPercent", fund, "up"));
+  } else if (stopLossRate < 0.1 && avgPnl < 0) {
+    adjustments.push(nudge("stopLossPercent", fund, "down"));
+  }
+
+  // --- Take-profit tuning ---
+  if (profitTakenCount > 0) {
+    const postProfitTrades = trades.filter(t => t.status === "PROFIT_TAKEN");
+    const avgTakeReturn = postProfitTrades.reduce((s, t) => s + t.pnl / t.amount, 0) / postProfitTrades.length;
+    if (avgTakeReturn > fund.takeProfitPercent * 0.8) {
+      adjustments.push(nudge("takeProfitPercent", fund, "up"));
+    }
+  } else if (winRate > 0.6) {
+    adjustments.push(nudge("takeProfitPercent", fund, "down"));
+  }
+
+  // --- Trailing stop tuning ---
+  if (trailingStoppedCount / trades.length > 0.3) {
+    adjustments.push(nudge("trailingStopPercent", fund, "up"));
+  } else if (trailingStoppedCount === 0 && profitTakenCount > 3) {
+    adjustments.push(nudge("trailingStopPercent", fund, "down"));
+  }
+
+  // --- Probability reversal tuning ---
+  if (reversedCount / trades.length > 0.25) {
+    adjustments.push(nudge("probReversalThreshold", fund, "down"));
+  } else if (reversedCount === 0 && stopLossRate > 0.3) {
+    adjustments.push(nudge("probReversalThreshold", fund, "down"));
+  }
+
+  // --- Expiry tuning ---
+  if (expiredCount / trades.length > 0.3) {
+    adjustments.push(nudge("maxHoldDays", fund, "down"));
+  } else if (expiredCount === 0 && avgPnl > 0) {
+    adjustments.push(nudge("maxHoldDays", fund, "up"));
+  }
+
+  // --- Sizing tuning ---
+  if (totalPnl > 0 && winRate > 0.55) {
+    adjustments.push(nudge("sizingBase", fund, "up"));
+  } else if (totalPnl < 0 && winRate < 0.4) {
+    adjustments.push(nudge("sizingBase", fund, "down"));
+  }
+
+  return adjustments.filter(a => a.before !== a.after);
+}
+
+function nudge(param: string, fund: FundConfig, direction: "up" | "down"): MicroAdjustment {
+  const bound = PARAM_BOUNDS[param];
+  const current = (fund as any)[param] as number;
+  if (typeof current !== "number" || !bound) {
+    return { param, before: current ?? 0, after: current ?? 0, direction };
+  }
+
+  const range = bound.max - bound.min;
+  const delta = range * MICRO_ADJUST_RATIO;
+  const newVal = direction === "up"
+    ? clampParam(param, current + delta)
+    : clampParam(param, current - delta);
+
+  return { param, before: current, after: newVal, direction };
+}
