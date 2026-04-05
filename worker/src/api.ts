@@ -1,5 +1,7 @@
 import type { Env, FundConfig } from "./types";
 import { corsHeaders } from "./auth";
+import { listVariants, getLineage, getEvolutionLog, getAllActiveVariants, getCurrentEpoch } from "./gene-variants";
+import { GENE_REGISTRY } from "./gene-interface";
 import {
   calculateCurrentPositionValue,
   calculateOpenPositionStats,
@@ -55,6 +57,15 @@ export async function handleApi(
   }
   if (path === "/api/system") {
     return await apiSystem(env.DB, headers);
+  }
+  if (path === "/api/gene-variants") {
+    return await apiGeneVariants(env.DB, req, headers);
+  }
+  if (path === "/api/gene-lineage") {
+    return await apiGeneLineage(env.DB, req, headers);
+  }
+  if (path === "/api/gene-evolution") {
+    return await apiGeneEvolution(env.DB, req, headers);
   }
   if (path === "/api/health") {
     const config = await getSystemConfig(env.DB);
@@ -585,4 +596,45 @@ async function apiSystem(
     executionMode: config.EXECUTION_MODE || "paper",
     config,
   }, { headers });
+}
+
+// ─── Gene Evolution APIs (Phase 3.5) ────────────────────
+
+async function apiGeneVariants(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const geneId = url.searchParams.get("gene") ?? undefined;
+  const variants = await listVariants(db, geneId);
+  const active = await getAllActiveVariants(db);
+  return Response.json({
+    variants,
+    activeConfig: Object.fromEntries(active),
+    registry: GENE_REGISTRY,
+  }, { headers });
+}
+
+async function apiGeneLineage(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const geneId = url.searchParams.get("gene") ?? undefined;
+  const lineage = await getLineage(db, geneId);
+  return Response.json({ lineage }, { headers });
+}
+
+async function apiGeneEvolution(
+  db: D1Database,
+  req: Request,
+  headers: HeadersInit,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+  const log = await getEvolutionLog(db, limit);
+  const epoch = await getCurrentEpoch(db);
+  return Response.json({ epoch, log }, { headers });
 }

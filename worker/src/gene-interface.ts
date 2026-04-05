@@ -138,6 +138,14 @@ export const GENE_REGISTRY: GeneMeta[] = [
     outputSchema: "MonitorOutput",
   },
   {
+    id: "polymarket-settler",
+    name: "Polymarket Market Settler",
+    version: "0.1.0",
+    fidelity: "native",
+    inputSchema: "SettlerInput",
+    outputSchema: "SettlerOutput",
+  },
+  {
     id: "polymarket-trader",
     name: "Polymarket Paper Trader",
     version: "0.1.0",

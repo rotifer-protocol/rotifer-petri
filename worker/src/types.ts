@@ -123,6 +123,7 @@ export type AgentEventType =
   | "TRADE_TRAILING_STOPPED"
   | "TRADE_REVERSED"
   | "MICRO_EVOLUTION"
+  | "CODE_EVOLUTION"
   | "FUND_FROZEN"
   | "FUND_UNFROZEN"
   | "ERROR";

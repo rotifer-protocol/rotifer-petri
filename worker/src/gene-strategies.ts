@@ -1,0 +1,123 @@
+/**
+ * Phase 3.5: Alternative Gene Implementations (ADR-205 §3.5.2)
+ *
+ * Each Gene slot can have multiple strategy implementations.
+ * Strategies are registered by key and dispatched by the Genome orchestrator
+ * based on the active variant's strategy_key.
+ *
+ * Currently provides:
+ *   - Scanner: baseline (edge-based) vs trend-following
+ *   - Monitor: baseline (fixed thresholds) vs adaptive (volatility-adjusted)
+ */
+
+import type { MarketSnapshot, ArbSignal, FundConfig } from "./types";
+import type { ScannerInput, ScannerOutput, MonitorOutput } from "./gene-interface";
+import type { MonitorAction, MonitorResult } from "./monitor";
+import { scan, analyze } from "./scan";
+import { monitor, executeMonitorActions } from "./monitor";
+import { fetchCurrentPrice } from "./price";
+
+// ─── Strategy Registry Pattern ──────────────────────────
+
+export type ScannerStrategy = (input: ScannerInput) => Promise<ScannerOutput>;
+export type MonitorStrategy = (db: D1Database, funds: FundConfig[]) => Promise<MonitorOutput>;
+
+const scannerStrategies = new Map<string, ScannerStrategy>();
+const monitorStrategies = new Map<string, MonitorStrategy>();
+
+export function getScannerStrategy(key: string): ScannerStrategy {
+  return scannerStrategies.get(key) ?? scannerStrategies.get("baseline")!;
+}
+
+export function getMonitorStrategy(key: string): MonitorStrategy {
+  return monitorStrategies.get(key) ?? monitorStrategies.get("baseline")!;
+}
+
+// ─── Scanner: v1-baseline ───────────────────────────────
+// Standard edge-based signal detection with volume/liquidity filtering.
+// Treats all signal types equally, sorts by edge descending.
+
+async function scannerBaseline(input: ScannerInput): Promise<ScannerOutput> {
+  const { markets, totalFetched } = await scan(input.scanLimit);
+  const filtered = markets.filter(
+    m => m.volume24hr >= input.minVolume && m.liquidity >= input.minLiquidity,
+  );
+  const signals = analyze(filtered, new Date().toISOString());
+  const avgEdge = signals.length > 0
+    ? Math.round((signals.reduce((s, x) => s + x.edge, 0) / signals.length) * 100) / 100
+    : 0;
+  return { markets, filtered, signals, totalFetched, avgEdge };
+}
+
+scannerStrategies.set("baseline", scannerBaseline);
+
+// ─── Scanner: v2-trend-following ────────────────────────
+// Prioritizes markets with consistent directional price movement.
+// Filters out SPREAD signals (no directional view), boosts MISPRICING
+// signals where the mispricing direction aligns with recent volume trends.
+// Applies a higher confidence floor (0.35 vs default 0.20).
+
+async function scannerTrendFollowing(input: ScannerInput): Promise<ScannerOutput> {
+  const { markets, totalFetched } = await scan(input.scanLimit);
+  const filtered = markets.filter(
+    m => m.volume24hr >= input.minVolume * 1.5 && m.liquidity >= input.minLiquidity,
+  );
+  const rawSignals = analyze(filtered, new Date().toISOString());
+
+  const signals = rawSignals
+    .filter(s => s.type !== "SPREAD")
+    .filter(s => s.confidence >= 0.35)
+    .map(s => {
+      const volumeBoost = Math.min(1.5, s.prices["volume24hr"] as number / 50000);
+      return { ...s, edge: s.edge * volumeBoost };
+    })
+    .sort((a, b) => b.edge - a.edge);
+
+  const avgEdge = signals.length > 0
+    ? Math.round((signals.reduce((s, x) => s + x.edge, 0) / signals.length) * 100) / 100
+    : 0;
+
+  return { markets, filtered, signals, totalFetched, avgEdge };
+}
+
+scannerStrategies.set("trend-following", scannerTrendFollowing);
+
+// ─── Monitor: v1-baseline ───────────────────────────────
+// Fixed take-profit, trailing-stop, and probability reversal thresholds
+// as defined per fund configuration.
+
+async function monitorBaseline(db: D1Database, funds: FundConfig[]): Promise<MonitorOutput> {
+  const result = await monitor(db, funds);
+  await executeMonitorActions(db, result);
+  return result;
+}
+
+monitorStrategies.set("baseline", monitorBaseline);
+
+// ─── Monitor: v2-adaptive ───────────────────────────────
+// Dynamically adjusts thresholds based on position age and P&L trajectory.
+// - Young positions (< 3 days): wider stop-loss, no take-profit trigger
+// - Profitable positions: trailing stop tightens as gain increases
+// - Losing positions: stop-loss remains fixed (no loosening)
+
+async function monitorAdaptive(db: D1Database, funds: FundConfig[]): Promise<MonitorOutput> {
+  const result = await monitor(db, funds, {
+    adaptiveMode: true,
+    youngPositionDays: 3,
+    trailingTightenFactor: 0.5,
+  });
+  await executeMonitorActions(db, result);
+  return result;
+}
+
+monitorStrategies.set("adaptive", monitorAdaptive);
+
+// ─── Registration helpers ───────────────────────────────
+
+export function listScannerStrategies(): string[] {
+  return [...scannerStrategies.keys()];
+}
+
+export function listMonitorStrategies(): string[] {
+  return [...monitorStrategies.keys()];
+}

@@ -35,16 +35,26 @@ interface OpenTrade {
   slug: string;
 }
 
+export interface MonitorOptions {
+  adaptiveMode?: boolean;
+  youngPositionDays?: number;
+  trailingTightenFactor?: number;
+}
+
 export async function monitor(
   db: D1Database,
   funds: FundConfig[],
+  options?: MonitorOptions,
 ): Promise<MonitorResult> {
   const result: MonitorResult = { actions: [], highWaterMarkUpdates: [] };
+  const adaptive = options?.adaptiveMode ?? false;
+  const youngDays = options?.youngPositionDays ?? 3;
+  const tightenFactor = options?.trailingTightenFactor ?? 0.5;
 
   const allOpen = await db.prepare(
-    "SELECT id, fund_id, market_id, question, direction, entry_price, shares, amount, high_water_mark, slug FROM paper_trades WHERE status = 'OPEN'",
+    "SELECT id, fund_id, market_id, question, direction, entry_price, shares, amount, high_water_mark, slug, opened_at FROM paper_trades WHERE status = 'OPEN'",
   ).all();
-  const trades = (allOpen.results ?? []) as unknown as OpenTrade[];
+  const trades = (allOpen.results ?? []) as unknown as (OpenTrade & { opened_at?: string })[];
   if (trades.length === 0) return result;
 
   const fundMap = new Map(funds.map(f => [f.id, f]));
@@ -61,8 +71,14 @@ export async function monitor(
     const unrealized = calcUnrealizedPnl(trade.direction, trade.shares, trade.amount, currentPrice);
     const returnPct = unrealized / trade.amount;
 
+    const holdDays = trade.opened_at
+      ? (Date.now() - new Date(trade.opened_at).getTime()) / 86400000
+      : Infinity;
+    const isYoung = adaptive && holdDays < youngDays;
+
     // --- Take Profit ---
-    if (returnPct >= fund.takeProfitPercent) {
+    const effectiveTakeProfit = isYoung ? Infinity : fund.takeProfitPercent;
+    if (returnPct >= effectiveTakeProfit) {
       result.actions.push({
         tradeId: trade.id,
         fundId: trade.fund_id,
@@ -89,7 +105,11 @@ export async function monitor(
     }
     if (newHwm > trade.entry_price) {
       const dropFromHwm = (newHwm - currentPrice) / newHwm;
-      if (dropFromHwm >= fund.trailingStopPercent) {
+      const gainFromEntry = (newHwm - trade.entry_price) / trade.entry_price;
+      const effectiveTrailingStop = adaptive && gainFromEntry > 0.1
+        ? fund.trailingStopPercent * (1 - tightenFactor * Math.min(gainFromEntry, 0.5))
+        : fund.trailingStopPercent;
+      if (dropFromHwm >= effectiveTrailingStop) {
         const pnl = calcUnrealizedPnl(trade.direction, trade.shares, trade.amount, currentPrice);
         result.actions.push({
           tradeId: trade.id,

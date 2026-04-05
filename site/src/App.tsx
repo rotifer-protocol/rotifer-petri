@@ -9,6 +9,7 @@ import { StatusBar } from "./components/StatusBar";
 import { EvolutionPanel } from "./components/EvolutionPanel";
 import { FundDetail } from "./components/FundDetail";
 import { ShadowPanel } from "./components/ShadowPanel";
+import { GeneEvolutionPanel } from "./components/GeneEvolutionPanel";
 import { useI18n } from "./i18n/context";
 import type { TranslationKey } from "./i18n/translations";
 
@@ -156,6 +157,7 @@ function Layout() {
               <NavLink to="/" className={navClass} end>{t("arena")}</NavLink>
               <NavLink to="/evolution" className={navClass}>{t("evolution")}</NavLink>
               <NavLink to="/shadow" className={navClass}>{t("shadow")}</NavLink>
+              <NavLink to="/gene-evolution" className={navClass}>{t("geneEvolution")}</NavLink>
         </div>
 
         <button
@@ -204,6 +206,16 @@ function Layout() {
             }
           >
             {t("shadow")}
+          </NavLink>
+          <NavLink
+            to="/gene-evolution"
+            className={({ isActive }) =>
+              `flex-1 px-3 py-2 rounded-md text-sm font-medium text-center transition-all ${
+                isActive ? "bg-[var(--r-accent)] text-white" : "text-[var(--r-text-muted)]"
+              }`
+            }
+          >
+            {t("geneEvolution")}
           </NavLink>
         </div>
 
@@ -448,6 +460,19 @@ function EvolutionPage() {
   );
 }
 
+function GeneEvolutionPage() {
+  const { t } = useI18n();
+  return (
+    <div>
+      <h2 className="text-sm font-medium text-[var(--r-text-muted)] uppercase tracking-widest mb-1">
+        {t("geneEvolution")}
+      </h2>
+      <p className="text-xs text-[var(--r-text-faint)] mb-4">{t("geneEvolutionDesc")}</p>
+      <GeneEvolutionPanel />
+    </div>
+  );
+}
+
 function ShadowPage() {
   const { t } = useI18n();
 
@@ -469,6 +494,7 @@ export default function App() {
         <Route index element={<ArenaPage />} />
         <Route path="evolution" element={<EvolutionPage />} />
         <Route path="shadow" element={<ShadowPage />} />
+        <Route path="gene-evolution" element={<GeneEvolutionPage />} />
         <Route path="fund/:fundId" element={<FundDetail />} />
       </Route>
     </Routes>

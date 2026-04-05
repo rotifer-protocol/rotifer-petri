@@ -28,22 +28,18 @@ import { settle } from "./settle";
 import { paperTrade } from "./trade";
 import { checkAndRunMicroEvolution } from "./micro-evolve";
 import { broadcast, sendSignals, sendTrades, sendSummary } from "./notify";
+import { getActiveVariant, recordTradeResult } from "./gene-variants";
+import { getScannerStrategy, getMonitorStrategy } from "./gene-strategies";
+import { checkAndRunCodeEvolution } from "./code-evolver";
 
-// ─── Gene Step: Scanner ─────────────────────────────────
+// ─── Gene Step: Scanner (variant-aware) ─────────────────
 
 async function runScannerGene(
   input: ScannerInput,
+  strategyKey = "baseline",
 ): Promise<ScannerOutput> {
-  const { markets, totalFetched } = await scan(input.scanLimit);
-  const filtered = markets.filter(
-    m => m.volume24hr >= input.minVolume && m.liquidity >= input.minLiquidity,
-  );
-  const signals = analyze(filtered, new Date().toISOString());
-  const avgEdge = signals.length > 0
-    ? Math.round((signals.reduce((s, x) => s + x.edge, 0) / signals.length) * 100) / 100
-    : 0;
-
-  return { markets, filtered, signals, totalFetched, avgEdge };
+  const strategy = getScannerStrategy(strategyKey);
+  return strategy(input);
 }
 
 // ─── Gene Step: Risk ────────────────────────────────────
@@ -55,15 +51,15 @@ async function runRiskGene(
   return await checkRiskLimits(db, funds);
 }
 
-// ─── Gene Step: Monitor ─────────────────────────────────
+// ─── Gene Step: Monitor (variant-aware) ─────────────────
 
 async function runMonitorGene(
   db: D1Database,
   funds: FundConfig[],
+  strategyKey = "baseline",
 ): Promise<MonitorOutput> {
-  const result = await monitor(db, funds);
-  await executeMonitorActions(db, result);
-  return result;
+  const strategy = getMonitorStrategy(strategyKey);
+  return strategy(db, funds);
 }
 
 // ─── Gene Step: Settler ─────────────────────────────────
@@ -113,6 +109,12 @@ export async function runGenomePipeline(
     events.push({ type, timestamp: ts, payload });
   }
 
+  // Load active Gene variants for dispatch
+  const scannerVariant = await getActiveVariant(env.DB, "polymarket-scanner");
+  const monitorVariant = await getActiveVariant(env.DB, "polymarket-monitor");
+  const scannerKey = scannerVariant?.strategyKey ?? "baseline";
+  const monitorKey = monitorVariant?.strategyKey ?? "baseline";
+
   // Step 1: Risk checks (stop-loss, expiry)
   const risk = await runRiskGene(env.DB, funds);
 
@@ -148,7 +150,7 @@ export async function runGenomePipeline(
       scanLimit: Number(env.SCAN_LIMIT) || 200,
       minVolume: Number(env.MIN_VOLUME) || 5000,
       minLiquidity: Number(env.MIN_LIQUIDITY) || 5000,
-    });
+    }, scannerKey);
   } catch (e) {
     emit("ERROR", { stage: "scan", message: String(e) });
     return {
@@ -203,7 +205,7 @@ export async function runGenomePipeline(
   }
 
   // Step 4: Monitor (active selling)
-  const monitorOut = await runMonitorGene(env.DB, funds);
+  const monitorOut = await runMonitorGene(env.DB, funds, monitorKey);
   for (const ma of monitorOut.actions) {
     const eventType = ma.newStatus === "PROFIT_TAKEN" ? "TRADE_PROFIT_TAKEN"
       : ma.newStatus === "TRAILING_STOPPED" ? "TRADE_TRAILING_STOPPED"
@@ -240,6 +242,38 @@ export async function runGenomePipeline(
       adjustments: mr.adjustments,
       trigger: mr.trigger,
     });
+  }
+
+  // Step 7: Code Evolution (Phase 3.5)
+  let codeEvoResult;
+  try {
+    codeEvoResult = await checkAndRunCodeEvolution(env.DB);
+    if (codeEvoResult.triggered) {
+      emit("CODE_EVOLUTION", {
+        epoch: codeEvoResult.epoch,
+        promotions: codeEvoResult.promotions.length,
+        eliminations: codeEvoResult.eliminations.length,
+        evaluations: codeEvoResult.evaluations.map(e => ({
+          geneId: e.geneId,
+          variantCount: e.variants.length,
+          best: e.bestVariant,
+        })),
+      });
+    }
+  } catch {
+    // non-critical — code evolution failure doesn't block pipeline
+  }
+
+  // Record trade results for active scanner/monitor variants (scoring)
+  try {
+    for (const s of settler.settlements) {
+      if (scannerVariant) await recordTradeResult(env.DB, scannerVariant.id, s.pnl, s.pnl > 0);
+    }
+    for (const ma of monitorOut.actions) {
+      if (monitorVariant) await recordTradeResult(env.DB, monitorVariant.id, ma.pnl, ma.pnl > 0);
+    }
+  } catch {
+    // non-critical
   }
 
   // Broadcast all collected events
@@ -282,6 +316,20 @@ export const GENOME_BLUEPRINT = {
     ],
   },
 };
+
+// ─── Genome Blueprint Export / Import ────────────────────
+
+export function exportGenomeBlueprint(): string {
+  return JSON.stringify(GENOME_BLUEPRINT, null, 2);
+}
+
+export function importGenomeBlueprint(json: string): typeof GENOME_BLUEPRINT {
+  const parsed = JSON.parse(json);
+  if (!parsed.id || !parsed.orchestration?.steps) {
+    throw new Error("Invalid Genome Blueprint: missing id or orchestration.steps");
+  }
+  return parsed;
+}
 
 // ─── Internal helpers ───────────────────────────────────
 

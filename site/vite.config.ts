@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      "/api": "https://polymarket-agent.web3coderman.workers.dev",
-      "/ws": { target: "wss://polymarket-agent.web3coderman.workers.dev", ws: true, changeOrigin: true },
+      "/api": "http://localhost:8787",
+      "/ws": { target: "ws://localhost:8787", ws: true },
     },
   },
 });

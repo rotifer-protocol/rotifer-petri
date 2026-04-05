@@ -1,0 +1,27 @@
+{
+  "$schema": "https://rotifer.dev/schemas/phenotype/v1.json",
+  "gene": "polymarket-trader",
+  "version": "0.1.0",
+  "fidelity": "native",
+  "description": "Executes paper trades: matches signals to eligible funds, calculates position sizing, and opens new positions.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "signals": { "type": "array", "items": { "$ref": "#/definitions/ArbSignal" }, "description": "Scored arbitrage signals from scanner" },
+      "markets": { "type": "array", "items": { "$ref": "#/definitions/MarketSnapshot" }, "description": "Filtered market snapshots for dedup/validation" },
+      "funds": { "type": "array", "items": { "$ref": "#/definitions/FundConfig" }, "description": "Fund configurations with balances and risk params" },
+      "timestamp": { "type": "string", "format": "date-time", "description": "Pipeline execution timestamp" }
+    },
+    "required": ["signals", "markets", "funds", "timestamp"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "trades": {
+        "type": "array",
+        "items": { "$ref": "#/definitions/TradeAction" },
+        "description": "Executed paper trade actions with fund/signal/pricing details"
+      }
+    }
+  }
+}

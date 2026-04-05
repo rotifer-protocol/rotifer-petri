@@ -223,10 +223,7 @@ export function ShadowPanel() {
       ) : (
         <div className="glass-card p-10 text-center">
           <Activity className="w-10 h-10 text-[var(--r-text-faint)] mx-auto mb-3" />
-          <p className="text-sm text-[var(--r-text-muted)] mb-1">{t("shadowNoData")}</p>
-          <p className="text-xs text-[var(--r-text-faint)]">
-            POST /execution-mode {"{"}&quot;mode&quot;: &quot;shadow&quot;{"}"} to enable
-          </p>
+          <p className="text-sm text-[var(--r-text-muted)]">{t("shadowNoData")}</p>
         </div>
       )}
     </div>
