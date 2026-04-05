@@ -302,8 +302,79 @@ function useHighlight(events: AgentEvent[]) {
   return { text: t("heroScanningMarkets"), positive: true, url: null };
 }
 
+interface HeartbeatData {
+  lastScanAt: string;
+  totalFetched: number;
+  marketsFiltered: number;
+  signalsFound: number;
+  tradesOpened: number;
+  settlementsProcessed: number;
+  monitorActions: number;
+  riskStops: number;
+  riskExpired: number;
+  skipSummary: Record<string, number>;
+}
+
+function formatTimeAgo(iso: string, t: (k: TranslationKey) => string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return t("timeJustNow");
+  if (mins < 60) return `${mins}${t("timeMinAgo")}`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}${t("timeHourAgo")}`;
+}
+
+function HeartbeatBar({ heartbeat }: { heartbeat: HeartbeatData | null }) {
+  const { t } = useI18n();
+
+  if (!heartbeat) {
+    return (
+      <div className="flex items-center gap-2 text-[10px] text-[var(--r-text-faint)] mt-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--r-text-faint)] opacity-40" />
+        <span>{t("heartbeatNeverRun")}</span>
+      </div>
+    );
+  }
+
+  const ago = formatTimeAgo(heartbeat.lastScanAt, t);
+  const skip = heartbeat.skipSummary ?? {};
+  const maxPos = skip.MAX_POSITIONS ?? 0;
+  const dup = skip.DUPLICATE_MARKET ?? 0;
+  const lowEdge = (skip.EDGE_TOO_LOW ?? 0) + (skip.CONFIDENCE_TOO_LOW ?? 0);
+  const noSignals = heartbeat.signalsFound === 0;
+
+  const parts: string[] = [];
+  parts.push(`${heartbeat.marketsFiltered} ${t("heartbeatMarkets")}`);
+  parts.push(`${heartbeat.signalsFound} ${t("heartbeatSignals")}`);
+  parts.push(`${heartbeat.tradesOpened} ${t("heartbeatTrades")}`);
+
+  const skipParts: string[] = [];
+  if (noSignals) skipParts.push(t("heartbeatNoSignals"));
+  if (maxPos > 0) skipParts.push(`${maxPos} ${t("heartbeatSkipMaxPos")}`);
+  if (dup > 0) skipParts.push(`${dup} ${t("heartbeatSkipDuplicate")}`);
+  if (lowEdge > 0) skipParts.push(`${lowEdge} ${t("heartbeatSkipEdge")}`);
+
+  const isRecent = Date.now() - new Date(heartbeat.lastScanAt).getTime() < 45 * 60000;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--r-text-faint)] mt-2">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isRecent ? "bg-[var(--r-green)]" : "bg-[var(--r-text-faint)] opacity-40"}`} />
+      <span className="font-medium">{t("heartbeatLastScan")}: {ago}</span>
+      <span className="opacity-50">·</span>
+      <span>{parts.join(" → ")}</span>
+      {skipParts.length > 0 && (
+        <>
+          <span className="opacity-50">·</span>
+          <span className="text-[var(--r-text-faint)]">{skipParts.join(", ")}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function HeroOverview({ funds, events }: { funds: FundData[]; events: AgentEvent[] }) {
   const { t } = useI18n();
+  const { data: hbResp } = useFetch<{ heartbeat: HeartbeatData | null }>("/api/heartbeat", 60_000);
 
   const totalPool = funds.reduce((s, f) => s + f.totalValue, 0);
   const initialCapital = funds.reduce((s, f) => s + f.initialBalance, 0);
@@ -379,6 +450,9 @@ function HeroOverview({ funds, events }: { funds: FundData[]; events: AgentEvent
             <span className="text-[var(--r-text-muted)] truncate">{highlight.text}</span>
           </div>
         )}
+
+        {/* Heartbeat bar */}
+        <HeartbeatBar heartbeat={hbResp?.heartbeat ?? null} />
       </div>
     </div>
   );

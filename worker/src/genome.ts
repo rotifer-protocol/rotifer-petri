@@ -1,13 +1,15 @@
 /**
- * Phase 3: Genome Orchestrator (ADR-199 §3.2)
+ * Phase 3.5 Genome Orchestrator — Petri Touchstone (ADR-199 §3.2, ADR-205)
  *
  * Wraps the pipeline stages as Gene-compatible steps with typed I/O.
- * The orchestration follows a Seq pattern:
- *   risk → scanner → monitor → settler → trader → micro-evolver
+ * Orchestration pattern: Seq { risk → scanner → settler → monitor → trader → micro-evolver }
  *
- * This is the internal restructuring step — once Rotifer v0.9 Composition
- * spec is finalized, each step can be extracted into an independent Gene
- * and this file becomes the Genome Controller.
+ * STATUS: Phase 3.5 "embedded touchstone" — all 6 Genes run inside this Worker.
+ * They are NOT yet published to Rotifer Cloud or compiled to IR.
+ * Scanner and Monitor are Hybrid targets (external API dependency).
+ * Risk, Trader, Settler, Evolver are Native-ready candidates (pure logic, D1-coupled).
+ *
+ * See: internal/plan/petri-phase-0-5-implementation.md § "Petri → Rotifer 化过渡清单"
  */
 
 import type { Env, FundConfig, AgentEvent, AgentEventType } from "./types";
@@ -81,9 +83,8 @@ async function runTraderGene(
   markets: import("./types").MarketSnapshot[],
   funds: FundConfig[],
   ts: string,
-): Promise<TraderOutput> {
-  const trades = await paperTrade(db, signals, markets, funds, ts);
-  return { trades };
+): Promise<import("./trade").PaperTradeResult> {
+  return await paperTrade(db, signals, markets, funds, ts);
 }
 
 // ─── Gene Step: Micro-Evolver ───────────────────────────
@@ -222,7 +223,8 @@ export async function runGenomePipeline(
   }
 
   // Step 5: Trader
-  const trader = await runTraderGene(env.DB, scanner.signals, scanner.filtered, funds, ts);
+  const traderResult = await runTraderGene(env.DB, scanner.signals, scanner.filtered, funds, ts);
+  const trader = { trades: traderResult.trades };
   for (const t of trader.trades) {
     emit("TRADE_OPENED", {
       fundId: t.fundId, fundName: t.fundName, fundEmoji: t.fundEmoji,
@@ -303,7 +305,7 @@ export async function runGenomePipeline(
 export const GENOME_BLUEPRINT = {
   id: "petri-polymarket-pipeline",
   version: "0.1.0",
-  description: "Polymarket prediction market trading pipeline with dual-layer evolution",
+  description: "Phase 3.5 embedded touchstone: Polymarket trading pipeline with dual-layer evolution (not yet in Rotifer Cloud lifecycle)",
   orchestration: {
     type: "Seq" as const,
     steps: [

@@ -99,6 +99,44 @@ function simulateClob(
   return { fillPrice: clamped, slippage: Math.round(slippageBps * 10000) / 10000, wouldFill };
 }
 
+// ─── Pipeline Heartbeat ──────────────────────────────────
+
+export interface PipelineHeartbeat {
+  lastScanAt: string;
+  totalFetched: number;
+  marketsFiltered: number;
+  signalsFound: number;
+  tradesOpened: number;
+  settlementsProcessed: number;
+  monitorActions: number;
+  riskStops: number;
+  riskExpired: number;
+  skipSummary: Record<string, number>;
+}
+
+export async function storeHeartbeat(db: D1Database, hb: PipelineHeartbeat): Promise<void> {
+  try {
+    await db.prepare(
+      "INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('PIPELINE_HEARTBEAT', ?, ?)",
+    ).bind(JSON.stringify(hb), hb.lastScanAt).run();
+  } catch {
+    // non-critical
+  }
+}
+
+export async function getHeartbeat(db: D1Database): Promise<PipelineHeartbeat | null> {
+  try {
+    const r = await db.prepare(
+      "SELECT value FROM system_config WHERE key = 'PIPELINE_HEARTBEAT'",
+    ).first<{ value: string }>();
+    return r ? JSON.parse(r.value) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Shadow Trading ─────────────────────────────────────
+
 export async function recordShadowOpen(
   db: D1Database,
   paperTradeId: string,

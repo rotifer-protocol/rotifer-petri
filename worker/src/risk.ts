@@ -1,3 +1,19 @@
+/**
+ * Polymarket Risk Gene — Code Boundary Map
+ *
+ * PURE COMPUTATION (Native-ready — can compile to WASM once D1 decoupled):
+ *   - Stop-loss evaluation logic
+ *   - Max-hold-days expiry logic
+ *   - Drawdown calculation
+ *   - effectiveSizing() — position sizing with drawdown adjustment
+ *
+ * D1 SIDE EFFECTS (need abstraction for Native migration):
+ *   - checkRiskLimits() → reads/writes D1 paper_trades
+ *   - getOpenPositionCount() → reads D1
+ *
+ * EXTERNAL SIDE EFFECTS (Hybrid dependency):
+ *   - fetchCurrentPrice() → called for live price (from price.ts → Polymarket API)
+ */
 import type { FundConfig, MarketSnapshot, Settlement } from "./types";
 import { fetchCurrentPrice, calcUnrealizedPnl } from "./price";
 import { getExecutionMode, recordShadowClose } from "./execution";

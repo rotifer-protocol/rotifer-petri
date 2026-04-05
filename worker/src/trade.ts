@@ -1,3 +1,21 @@
+/**
+ * Polymarket Trader Gene — Code Boundary Map
+ *
+ * PURE COMPUTATION (Native-ready — can compile to WASM once D1 decoupled):
+ *   - entryDirection() — signal → direction mapping
+ *   - entryPrice()     — signal → price extraction
+ *   - Position sizing logic (sizing(), effectiveSizing())
+ *   - Skip reason classification
+ *
+ * D1 SIDE EFFECTS (need abstraction for Native migration):
+ *   - paperTrade()    → reads/writes D1 (balance, duplicates, trades)
+ *   - getBalance()    → reads D1
+ *   - isDuplicate()   → reads D1
+ *   - isFrozen()      → reads D1
+ *
+ * EXTERNAL SIDE EFFECTS (Hybrid dependency):
+ *   - fetchPrices()   → called for open position pricing (from price.ts → Polymarket API)
+ */
 import type { ArbSignal, FundConfig, MarketSnapshot, TradeAction } from "./types";
 import { sizing } from "./types";
 import { effectiveSizing, getOpenPositionCount } from "./risk";
@@ -63,20 +81,37 @@ async function isDuplicate(db: D1Database, fundId: string, marketId: string): Pr
   return (r?.cnt ?? 0) > 0;
 }
 
+export interface SkipReasonEntry {
+  fundId: string;
+  code: string;
+}
+
+export interface PaperTradeResult {
+  trades: TradeAction[];
+  skipReasons: SkipReasonEntry[];
+}
+
 export async function paperTrade(
   db: D1Database,
   sigs: ArbSignal[],
   markets: MarketSnapshot[],
   funds: FundConfig[],
   ts: string,
-): Promise<TradeAction[]> {
+): Promise<PaperTradeResult> {
   const trades: TradeAction[] = [];
+  const skipReasons: SkipReasonEntry[] = [];
 
   for (const fund of funds) {
-    if (await isFrozen(db, fund.id)) continue;
+    if (await isFrozen(db, fund.id)) {
+      skipReasons.push({ fundId: fund.id, code: "FUND_FROZEN" });
+      continue;
+    }
 
     const openCount = await getOpenPositionCount(db, fund.id);
-    if (openCount >= fund.maxOpenPositions) continue;
+    if (openCount >= fund.maxOpenPositions) {
+      skipReasons.push({ fundId: fund.id, code: "MAX_POSITIONS" });
+      continue;
+    }
 
     let cash = await getBalance(db, fund.id, fund.initialBalance);
     let positionsOpened = 0;
@@ -98,32 +133,65 @@ export async function paperTrade(
     const currentDrawdown = calculateDrawdownPct(fund.initialBalance, currentEquity);
 
     for (const sig of sigs) {
-      if (openCount + positionsOpened >= fund.maxOpenPositions) break;
+      if (openCount + positionsOpened >= fund.maxOpenPositions) {
+        skipReasons.push({ fundId: fund.id, code: "MAX_POSITIONS" });
+        break;
+      }
 
-      if (!fund.allowedTypes.includes(sig.type)) continue;
-      if (sig.edge < fund.minEdge) continue;
-      if (sig.confidence < fund.minConfidence) continue;
+      if (!fund.allowedTypes.includes(sig.type)) {
+        skipReasons.push({ fundId: fund.id, code: "TYPE_NOT_ALLOWED" });
+        continue;
+      }
+      if (sig.edge < fund.minEdge) {
+        skipReasons.push({ fundId: fund.id, code: "EDGE_TOO_LOW" });
+        continue;
+      }
+      if (sig.confidence < fund.minConfidence) {
+        skipReasons.push({ fundId: fund.id, code: "CONFIDENCE_TOO_LOW" });
+        continue;
+      }
 
       const vol = sig.prices["volume24hr"] ?? 0;
-      if (vol < fund.minVolume) continue;
+      if (vol < fund.minVolume) {
+        skipReasons.push({ fundId: fund.id, code: "VOLUME_TOO_LOW" });
+        continue;
+      }
 
       const liq = sig.prices["liquidity"] ?? vol;
-      if (liq < fund.minLiquidity) continue;
+      if (liq < fund.minLiquidity) {
+        skipReasons.push({ fundId: fund.id, code: "LIQUIDITY_TOO_LOW" });
+        continue;
+      }
 
-      if (fund.id === "octopus" && sig.type !== "SPREAD" && sig.edge * sig.confidence < 1.5) continue;
+      if (fund.id === "octopus" && sig.type !== "SPREAD" && sig.edge * sig.confidence < 1.5) {
+        skipReasons.push({ fundId: fund.id, code: "COMPOSITE_TOO_LOW" });
+        continue;
+      }
 
       const effectiveMarketId = sig.resolvedMarketId ?? sig.marketId;
-      if (await isDuplicate(db, fund.id, effectiveMarketId)) continue;
+      if (await isDuplicate(db, fund.id, effectiveMarketId)) {
+        skipReasons.push({ fundId: fund.id, code: "DUPLICATE_MARKET" });
+        continue;
+      }
       const exposure = await getEventExposure(db, fund.id, sig.slug);
-      if (exposure >= fund.maxPerEvent) continue;
+      if (exposure >= fund.maxPerEvent) {
+        skipReasons.push({ fundId: fund.id, code: "MAX_EVENT_EXPOSURE" });
+        continue;
+      }
 
       const rawSize = sizing(fund, sig);
       const adjustedSize = effectiveSizing(rawSize, currentDrawdown, fund);
       const amount = Math.min(adjustedSize, cash, fund.maxPerEvent - exposure);
-      if (amount < 50) continue;
+      if (amount < 50) {
+        skipReasons.push({ fundId: fund.id, code: "INSUFFICIENT_CASH" });
+        continue;
+      }
 
       const price = entryPrice(sig);
-      if (price <= 0.01 || price >= 0.99) continue;
+      if (price <= 0.01 || price >= 0.99) {
+        skipReasons.push({ fundId: fund.id, code: "PRICE_BOUNDARY" });
+        continue;
+      }
       const dir = entryDirection(sig);
       const shares = amount / price;
 
@@ -153,5 +221,5 @@ export async function paperTrade(
       });
     }
   }
-  return trades;
+  return { trades, skipReasons };
 }

@@ -18,7 +18,7 @@ import {
   SYSTEM_INVALIDATION_MONITOR_REASON_SQL,
   toDisplayTradeStatus,
 } from "./trade-semantics";
-import { getSystemConfig } from "./execution";
+import { getSystemConfig, getHeartbeat } from "./execution";
 
 /**
  * D-Evo-11/13: Read-only GET endpoints for the frontend.
@@ -66,6 +66,10 @@ export async function handleApi(
   }
   if (path === "/api/gene-evolution") {
     return await apiGeneEvolution(env.DB, req, headers);
+  }
+  if (path === "/api/heartbeat") {
+    const heartbeat = await getHeartbeat(env.DB);
+    return Response.json({ heartbeat }, { headers });
   }
   if (path === "/api/health") {
     const config = await getSystemConfig(env.DB);

@@ -30,8 +30,11 @@ import {
   setKillSwitch,
   getSystemConfig,
   setExecutionMode,
+  storeHeartbeat,
   type ExecutionMode,
+  type PipelineHeartbeat,
 } from "./execution";
+import type { SkipReasonEntry } from "./trade";
 export { LiveHub } from "./ws-hub";
 
 // ─── Fund Loading ────────────────────────────────────────
@@ -124,6 +127,16 @@ async function takeSnapshot(db: D1Database, date: string, funds: FundConfig[]): 
       fund.monthlyTarget, fund.drawdownLimit, frozen,
     ).run();
   }
+}
+
+// ─── Heartbeat helpers ───────────────────────────────────
+
+function aggregateSkipReasons(reasons: SkipReasonEntry[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const r of reasons) {
+    counts[r.code] = (counts[r.code] ?? 0) + 1;
+  }
+  return counts;
 }
 
 // ─── Pipeline ────────────────────────────────────────────
@@ -267,7 +280,8 @@ async function runPipeline(env: Env, funds: FundConfig[]): Promise<Record<string
     });
   }
 
-  const trades = await paperTrade(env.DB, sigs, filtered, funds, ts);
+  const tradeResult = await paperTrade(env.DB, sigs, filtered, funds, ts);
+  const trades = tradeResult.trades;
     for (const t of trades) {
     await broadcast(env, {
       type: "TRADE_OPENED",
@@ -311,6 +325,19 @@ async function runPipeline(env: Env, funds: FundConfig[]): Promise<Record<string
       } as unknown as Record<string, unknown>,
     });
   }
+
+  await storeHeartbeat(env.DB, {
+    lastScanAt: ts,
+    totalFetched,
+    marketsFiltered: filtered.length,
+    signalsFound: sigs.length,
+    tradesOpened: trades.length,
+    settlementsProcessed: settlements.length,
+    monitorActions: monitorResult.actions.length,
+    riskStops: riskResult.stopped.length,
+    riskExpired: riskResult.expired.length,
+    skipSummary: aggregateSkipReasons(tradeResult.skipReasons),
+  });
 
   return summary;
 }
@@ -491,8 +518,9 @@ export default {
     // Info endpoint
     return Response.json(
       {
-      name: "polymarket-arbitrage-agent",
-        version: "3.0.0",
+      name: "petri-polymarket-agent",
+        version: "3.1.0",
+        status: "Phase 3.5 embedded touchstone — not yet in Rotifer Cloud lifecycle",
         funds: funds.map(f => ({
           id: f.id, name: f.name, emoji: f.emoji, motto: f.motto,
           monthlyTarget: `+${f.monthlyTarget * 100}%`,
@@ -511,6 +539,7 @@ export default {
           "GET /api/evolution": "Evolution log and epoch history",
           "GET /api/shadow": "Shadow order log and paper-vs-shadow comparison (query: fund, limit)",
           "GET /api/system": "System config (kill switch, execution mode)",
+          "GET /api/heartbeat": "Pipeline heartbeat (last scan time, skip reasons)",
           "GET /api/health": "Health check (includes kill switch + mode)",
           "WS /ws": "Real-time event stream (WebSocket)",
           "POST /run": "Manual scan+trade (auth required)",

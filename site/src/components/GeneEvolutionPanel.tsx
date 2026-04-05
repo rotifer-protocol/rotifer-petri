@@ -30,10 +30,19 @@ interface EvolutionLogEntry {
   createdAt: string;
 }
 
+interface GeneRegistryEntry {
+  id: string;
+  name: string;
+  version: string;
+  fidelity: string;
+  lifecycleStatus: string;
+  externalDependencies?: string[];
+}
+
 interface VariantsResponse {
   variants: GeneVariant[];
   activeConfig: Record<string, string>;
-  registry: Array<{ id: string; name: string; version: string }>;
+  registry: GeneRegistryEntry[];
 }
 
 interface EvolutionResponse {
@@ -68,6 +77,9 @@ export function GeneEvolutionPanel() {
   const activeConfig = varData?.activeConfig ?? {};
   const log = evoData?.log ?? [];
   const epoch = evoData?.epoch ?? 0;
+
+  const registry = varData?.registry ?? [];
+  const registryMap = new Map(registry.map(r => [r.id, r]));
 
   const geneGroups = new Map<string, GeneVariant[]>();
   for (const v of variants) {
@@ -104,7 +116,14 @@ export function GeneEvolutionPanel() {
           {t("geneVariants")}
         </h3>
         <div className="space-y-3">
-          {[...geneGroups.entries()].map(([geneId, gv]) => (
+          {[...geneGroups.entries()].map(([geneId, gv]) => {
+            const meta = registryMap.get(geneId);
+            const fidelityColor = meta?.fidelity === "hybrid"
+              ? "bg-amber-500/10 text-amber-600"
+              : meta?.fidelity === "native"
+                ? "bg-emerald-500/10 text-emerald-600"
+                : "bg-zinc-500/10 text-zinc-400";
+            return (
             <div key={geneId} className="glass-card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <GitBranch className="w-4 h-4 text-[var(--r-accent)]" />
@@ -112,6 +131,16 @@ export function GeneEvolutionPanel() {
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--r-accent)]/10 text-[var(--r-accent)]">
                   {gv.filter(v => v.status === "active").length} active
                 </span>
+                {meta && (
+                  <>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${fidelityColor}`}>
+                      {meta.fidelity}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--r-surface)] text-[var(--r-text-faint)] border border-[var(--r-border)]">
+                      {meta.lifecycleStatus}
+                    </span>
+                  </>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -156,7 +185,8 @@ export function GeneEvolutionPanel() {
                 </table>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

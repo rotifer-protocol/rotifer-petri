@@ -101,15 +101,33 @@ export interface GenomePipelineResult {
   timestamp: string;
 }
 
-// ─── Gene Metadata (future phenotype.json) ──────────────
+// ─── Gene Metadata ──────────────────────────────────────
+//
+// Fidelity follows Rotifer Protocol Specification §4 (Gene Standard):
+//   - "hybrid"  = requires external network calls (API, WebSocket)
+//   - "native"  = pure computation, eligible for WASM IR compilation
+//   - "wrapped" = thin wrapper around external service
+//
+// Status: all 6 genes are currently "embedded" in the Petri Worker
+// (Phase 3.5 touchstone). They are NOT yet published to Rotifer Cloud
+// or compiled to IR. The fidelity field reflects the *target* form
+// for when they enter the full protocol lifecycle.
+//
+// Migration path: see internal/plan/petri-phase-0-5-implementation.md
+// § "Petri → Rotifer 化过渡清单"
+
+export type GeneFidelity = "native" | "wrapped" | "hybrid";
+export type GeneLifecycleStatus = "embedded" | "published" | "trial" | "active";
 
 export interface GeneMeta {
   id: string;
   name: string;
   version: string;
-  fidelity: "native" | "wrapped";
+  fidelity: GeneFidelity;
+  lifecycleStatus: GeneLifecycleStatus;
   inputSchema: string;
   outputSchema: string;
+  externalDependencies?: string[];
 }
 
 export const GENE_REGISTRY: GeneMeta[] = [
@@ -117,15 +135,18 @@ export const GENE_REGISTRY: GeneMeta[] = [
     id: "polymarket-scanner",
     name: "Polymarket Scanner",
     version: "0.1.0",
-    fidelity: "native",
+    fidelity: "hybrid",
+    lifecycleStatus: "embedded",
     inputSchema: "ScannerInput",
     outputSchema: "ScannerOutput",
+    externalDependencies: ["gamma-api.polymarket.com"],
   },
   {
     id: "polymarket-risk",
     name: "Polymarket Risk Manager",
     version: "0.1.0",
     fidelity: "native",
+    lifecycleStatus: "embedded",
     inputSchema: "RiskInput",
     outputSchema: "RiskOutput",
   },
@@ -133,15 +154,18 @@ export const GENE_REGISTRY: GeneMeta[] = [
     id: "polymarket-monitor",
     name: "Polymarket Active Monitor",
     version: "0.1.0",
-    fidelity: "native",
+    fidelity: "hybrid",
+    lifecycleStatus: "embedded",
     inputSchema: "MonitorInput",
     outputSchema: "MonitorOutput",
+    externalDependencies: ["gamma-api.polymarket.com"],
   },
   {
     id: "polymarket-settler",
     name: "Polymarket Market Settler",
     version: "0.1.0",
     fidelity: "native",
+    lifecycleStatus: "embedded",
     inputSchema: "SettlerInput",
     outputSchema: "SettlerOutput",
   },
@@ -150,6 +174,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
     name: "Polymarket Paper Trader",
     version: "0.1.0",
     fidelity: "native",
+    lifecycleStatus: "embedded",
     inputSchema: "TraderInput",
     outputSchema: "TraderOutput",
   },
@@ -158,6 +183,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
     name: "Polymarket Strategy Evolver",
     version: "0.1.0",
     fidelity: "native",
+    lifecycleStatus: "embedded",
     inputSchema: "EvolverInput",
     outputSchema: "MicroEvolverOutput | MacroEvolverOutput",
   },

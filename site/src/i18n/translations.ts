@@ -301,6 +301,19 @@ const en = {
   geneNoVariants: "No gene variants yet. Baseline implementations are seeded on first pipeline run.",
   geneScoreTrajectory: "F(g) Score Trajectory",
 
+  // Heartbeat
+  heartbeatLastScan: "Last scan",
+  heartbeatAgo: "ago",
+  heartbeatMarkets: "markets",
+  heartbeatSignals: "signals",
+  heartbeatTrades: "trades",
+  heartbeatNoSignals: "No trading signals found",
+  heartbeatSkipMaxPos: "funds at max positions",
+  heartbeatSkipDuplicate: "duplicate markets",
+  heartbeatSkipEdge: "signals below edge threshold",
+  heartbeatSkipCash: "insufficient cash",
+  heartbeatNeverRun: "Pipeline has not run yet",
+
   // Param change
   paramChangeNew: "new",
 
@@ -629,6 +642,18 @@ const zh: Record<TranslationKey, string> = {
   geneEpochCompleted: "世代完成",
   geneNoVariants: "尚无基因变体。基线实现将在首次管线运行时注入。",
   geneScoreTrajectory: "F(g) 评分轨迹",
+
+  heartbeatLastScan: "最近扫描",
+  heartbeatAgo: "前",
+  heartbeatMarkets: "个市场",
+  heartbeatSignals: "个信号",
+  heartbeatTrades: "笔交易",
+  heartbeatNoSignals: "未发现交易信号",
+  heartbeatSkipMaxPos: "只基金已满仓",
+  heartbeatSkipDuplicate: "个重复市场",
+  heartbeatSkipEdge: "个信号低于边际阈值",
+  heartbeatSkipCash: "资金不足",
+  heartbeatNeverRun: "管线尚未运行",
 
   paramChangeNew: "新增",
 
