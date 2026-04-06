@@ -8,7 +8,7 @@ routes = [
 ]
 
 [triggers]
-crons = ["*/30 * * * *", "0 1 * * *", "0 0 * * SUN"]
+crons = ["*/5 * * * *", "0 1 * * *", "0 0 * * SUN"]
 
 [[d1_databases]]
 binding = "DB"
@@ -17,9 +17,14 @@ database_id = "482e3d91-d775-486a-920c-b61517baa52f"
 
 [durable_objects]
 bindings = [
-  { name = "LIVE_HUB", class_name = "LiveHub" }
+  { name = "LIVE_HUB", class_name = "LiveHub" },
+  { name = "RISK_MONITOR", class_name = "RiskMonitor" }
 ]
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["LiveHub"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RiskMonitor"]

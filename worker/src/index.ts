@@ -2,7 +2,7 @@
 // Five-Fund Paper Trading System with Evolution Engine
 //
 // Pipeline: risk-check -> scan -> analyze -> trade -> settle -> record -> push
-// Cron: every-30min scan+trade, daily 01:00 report, weekly Sun 00:00 evolve
+// Cron: every-5min scan+trade, daily 01:00 report, weekly Sun 00:00 evolve
 //
 // ADR-196: D-Evo-1 to D-Evo-19
 
@@ -36,6 +36,7 @@ import {
 } from "./execution";
 import type { SkipReasonEntry } from "./trade";
 export { LiveHub } from "./ws-hub";
+export { RiskMonitor } from "./risk-monitor";
 
 // ─── Fund Loading ────────────────────────────────────────
 
@@ -339,6 +340,8 @@ async function runPipeline(env: Env, funds: FundConfig[]): Promise<Record<string
     skipSummary: aggregateSkipReasons(tradeResult.skipReasons),
   });
 
+  await armRiskMonitor(env, funds);
+
   return summary;
 }
 
@@ -369,6 +372,22 @@ async function runDailyReport(env: Env, funds: FundConfig[]): Promise<void> {
     timestamp: new Date().toISOString(),
     payload: snapPayload as unknown as Record<string, unknown>,
   });
+}
+
+// ─── Risk Monitor ────────────────────────────────────────
+
+async function armRiskMonitor(env: Env, funds: FundConfig[]): Promise<void> {
+  try {
+    const id = env.RISK_MONITOR.idFromName("singleton");
+    const stub = env.RISK_MONITOR.get(id);
+    await stub.fetch("http://internal/arm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ funds }),
+    });
+  } catch (e) {
+    console.error("Failed to arm RiskMonitor:", e);
+  }
 }
 
 // ─── Entry ───────────────────────────────────────────────
@@ -515,6 +534,28 @@ export default {
       }
     }
 
+    if (path === "/risk-monitor") {
+      const id = env.RISK_MONITOR.idFromName("singleton");
+      const stub = env.RISK_MONITOR.get(id);
+      if (req.method === "GET") {
+        return stub.fetch("http://internal/status");
+      }
+      const authError = requireAuth(req, env);
+      if (authError) return authError;
+      const body = await req.json() as { action: string };
+      if (body.action === "arm") {
+        return stub.fetch("http://internal/arm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ funds }),
+        });
+      }
+      if (body.action === "disarm") {
+        return stub.fetch("http://internal/disarm", { method: "POST" });
+      }
+      return Response.json({ error: "Invalid action" }, { status: 400, headers: corsHeaders(origin) });
+    }
+
     // Info endpoint
     return Response.json(
       {
@@ -527,7 +568,8 @@ export default {
           initialBalance: f.initialBalance,
         })),
         schedule: {
-          scan: "every 30 min",
+          scan: "every 5 min",
+          riskMonitor: "every 60s (Durable Object alarm)",
           dailyReport: "0 1 * * * (UTC 01:00 = BJ 09:00)",
           evolution: "0 0 * * SUN (Sunday UTC 00:00 = BJ 08:00)",
         },
@@ -548,6 +590,8 @@ export default {
           "POST /init-funds": "Initialize fund configs in D1 (auth required)",
           "POST /kill-switch": "Toggle kill switch (auth required, body: {active: boolean})",
           "POST /execution-mode": "Set execution mode (auth required, body: {mode: 'paper'|'shadow'})",
+          "GET /risk-monitor": "Risk monitor status",
+          "POST /risk-monitor": "Arm/disarm risk monitor (auth required, body: {action: 'arm'|'disarm'})",
         },
       },
       { headers: corsHeaders(origin) },

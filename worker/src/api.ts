@@ -19,6 +19,7 @@ import {
   toDisplayTradeStatus,
 } from "./trade-semantics";
 import { getSystemConfig, getHeartbeat } from "./execution";
+import { piggybackRiskCheck } from "./risk";
 
 /**
  * D-Evo-11/13: Read-only GET endpoints for the frontend.
@@ -106,6 +107,7 @@ async function getFundLiveStats(
   lossCount: number;
   realizedPnl: number;
   unrealizedPnl: number;
+  priceMap: Map<string, number>;
 }> {
   const openTradesResult = await db.prepare(
     "SELECT market_id, direction, shares, amount FROM paper_trades WHERE fund_id = ? AND status = 'OPEN'",
@@ -147,6 +149,7 @@ async function getFundLiveStats(
     lossCount: l,
     realizedPnl,
     unrealizedPnl,
+    priceMap,
   };
 }
 
@@ -258,7 +261,12 @@ async function apiFundDetail(
     "SELECT * FROM portfolio_snapshots WHERE fund_id = ? ORDER BY date DESC LIMIT 1",
   ).bind(fund.id).first();
 
-  const live = await getFundLiveStats(db, fund.id, fund.initialBalance);
+  let live = await getFundLiveStats(db, fund.id, fund.initialBalance);
+
+  const triggered = await piggybackRiskCheck(db, fund.id, fund, live.priceMap);
+  if (triggered.length > 0) {
+    live = await getFundLiveStats(db, fund.id, fund.initialBalance);
+  }
 
   const configRow = await db.prepare(
     "SELECT * FROM fund_configs WHERE id = ?",

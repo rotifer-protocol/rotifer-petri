@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft, TrendingUp, Activity, Target,
-  Shield, ChevronDown, ChevronUp, Dna, ExternalLink,
+  Shield, ChevronDown, ChevronUp, Fingerprint, ExternalLink,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useFetch } from "../hooks/useApi";
@@ -283,7 +283,12 @@ function TradeRow({ trade, maxHoldDays }: { trade: Trade; maxHoldDays?: number }
             )}
           </div>
           {!isOpen && closeReasonDetail && (
-            <p className="mt-3 text-[var(--r-text-faint)] italic">{closeReasonDetail}</p>
+            <div className="mt-3">
+              <p className="text-[var(--r-text-faint)] italic">{closeReasonDetail}</p>
+              {(trade.close_reason_code === "STOP_LOSS_TRIGGERED" || trade.close_reason_code === "TRAILING_STOP_TRIGGERED") && (
+                <p className="text-[var(--r-text-faint)] text-xs mt-1 opacity-60">{t("stopLossNote")}</p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -296,9 +301,9 @@ interface ParamGroup {
   params: { key: string; labelKey: TranslationKey }[];
 }
 
-const DNA_GROUPS: ParamGroup[] = [
+const GENE_GROUPS: ParamGroup[] = [
   {
-    titleKey: "dnaGroupSignal",
+    titleKey: "geneGroupSignal",
     params: [
       { key: "allowedTypes", labelKey: "paramAllowedTypes" },
       { key: "minEdge", labelKey: "paramMinEdge" },
@@ -308,7 +313,7 @@ const DNA_GROUPS: ParamGroup[] = [
     ],
   },
   {
-    titleKey: "dnaGroupPosition",
+    titleKey: "geneGroupPosition",
     params: [
       { key: "maxPerEvent", labelKey: "paramMaxPerEvent" },
       { key: "maxOpenPositions", labelKey: "paramMaxPositions" },
@@ -318,7 +323,7 @@ const DNA_GROUPS: ParamGroup[] = [
     ],
   },
   {
-    titleKey: "dnaGroupRisk",
+    titleKey: "geneGroupRisk",
     params: [
       { key: "stopLossPercent", labelKey: "paramStopLoss" },
       { key: "takeProfitPercent", labelKey: "takeProfitLabel" },
@@ -333,7 +338,7 @@ const DNA_GROUPS: ParamGroup[] = [
 ];
 
 const PARAM_LABELS: Record<string, TranslationKey> = {};
-for (const g of DNA_GROUPS) for (const p of g.params) PARAM_LABELS[p.key] = p.labelKey;
+for (const g of GENE_GROUPS) for (const p of g.params) PARAM_LABELS[p.key] = p.labelKey;
 
 export function FundDetail() {
   const { fundId } = useParams<{ fundId: string }>();
@@ -368,10 +373,15 @@ export function FundDetail() {
   const nameKey = FUND_NAMES[fund.id];
   const mottoKey = FUND_MOTTOS[fund.id];
 
-  const chartData = (snapshotsResp?.snapshots ?? [])
+  const today = new Date().toISOString().slice(0, 10);
+  const snapshotPoints = (snapshotsResp?.snapshots ?? [])
     .slice()
     .reverse()
     .map(s => ({ date: s.date, value: s.total_value }));
+  const lastDate = snapshotPoints[snapshotPoints.length - 1]?.date;
+  const chartData = lastDate === today
+    ? snapshotPoints.map(p => p.date === today ? { ...p, value: fund.totalValue } : p)
+    : [...snapshotPoints, { date: today, value: fund.totalValue }];
 
   const openTrades = openTradesResp?.trades ?? [];
   const closedTrades = closedTradesResp?.trades ?? [];
@@ -458,18 +468,18 @@ export function FundDetail() {
         )}
       </div>
 
-      {/* Strategy DNA */}
+      {/* Strategy Gene */}
       <div className="glass-card p-5">
         <h3 className="text-sm font-medium text-[var(--r-text-muted)] uppercase tracking-widest mb-4">
-          <Dna className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />{t("strategyDna")}
+          <Fingerprint className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />{t("strategyGene")}
         </h3>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {DNA_GROUPS.map(group => (
+          {GENE_GROUPS.map(group => (
             <div key={group.titleKey}>
               <h4 className="text-xs font-medium text-[var(--r-accent)] uppercase tracking-wider mb-2">{t(group.titleKey)}</h4>
               <div className="space-y-0">
                 {group.params.map(({ key, labelKey }) => {
-                  const isRisk = group.titleKey === "dnaGroupRisk" && (key === "stopLossPercent" || key === "drawdownLimit" || key === "takeProfitPercent" || key === "trailingStopPercent" || key === "probReversalThreshold");
+                  const isRisk = group.titleKey === "geneGroupRisk" && (key === "stopLossPercent" || key === "drawdownLimit" || key === "takeProfitPercent" || key === "trailingStopPercent" || key === "probReversalThreshold");
                   return (
                     <div key={key} className="flex justify-between py-1.5 border-b border-[var(--r-border)]/50 text-sm">
                       <span className="text-[var(--r-text-muted)]">{t(labelKey)}</span>

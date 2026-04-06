@@ -4,6 +4,7 @@ export interface Env {
   TELEGRAM_CHAT_ID: string;
   API_TOKEN: string;
   LIVE_HUB: DurableObjectNamespace;
+  RISK_MONITOR: DurableObjectNamespace;
   SCAN_LIMIT?: string;
   MIN_VOLUME?: string;
   MIN_LIQUIDITY?: string;

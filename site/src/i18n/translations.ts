@@ -202,7 +202,7 @@ const en = {
   totalValue: "Total Value",
   equityCurve: "Equity Curve",
   equityCurveEmpty: "Equity curve will appear after the first daily snapshot.",
-  strategyDna: "Strategy DNA",
+  strategyGene: "Strategy Gene",
   tradeHistory: "Trade History",
   evolutionLog: "Evolution Log",
   noTrades: "No trades yet",
@@ -229,6 +229,7 @@ const en = {
   closeReasonTrailingStop: "Trailing Stop Triggered",
   closeReasonReversed: "Probability Reversed",
   closeReasonInvalidated: "System Repair Closed",
+  stopLossNote: "Periodic check — actual trigger price may deviate from threshold.",
 
   // Signal types
   signalMispricing: "Mispricing",
@@ -375,10 +376,10 @@ const en = {
   timeMinAgo: "m ago",
   timeHourAgo: "h ago",
 
-  // Strategy DNA groups
-  dnaGroupSignal: "Signal Filters",
-  dnaGroupPosition: "Position Management",
-  dnaGroupRisk: "Risk Control",
+  // Strategy Gene groups
+  geneGroupSignal: "Signal Filters",
+  geneGroupPosition: "Position Management",
+  geneGroupRisk: "Risk Control",
 
   // Strategy params
   paramAllowedTypes: "Allowed Types",
@@ -581,7 +582,7 @@ const zh: Record<TranslationKey, string> = {
   totalValue: "总价值",
   equityCurve: "净值曲线",
   equityCurveEmpty: "净值曲线将在首次每日快照后显示。",
-  strategyDna: "策略 DNA",
+  strategyGene: "策略基因",
   tradeHistory: "交易历史",
   evolutionLog: "进化日志",
   noTrades: "暂无交易",
@@ -606,6 +607,7 @@ const zh: Record<TranslationKey, string> = {
   closeReasonTrailingStop: "触发追踪止损",
   closeReasonReversed: "触发概率反转",
   closeReasonInvalidated: "系统修复关闭",
+  stopLossNote: "周期检查机制，实际触发价可能偏离阈值。",
 
   signalMispricing: "定价偏差",
   signalMultiOutcomeArb: "多结果套利",
@@ -738,9 +740,9 @@ const zh: Record<TranslationKey, string> = {
   timeMinAgo: "分钟前",
   timeHourAgo: "小时前",
 
-  dnaGroupSignal: "信号过滤",
-  dnaGroupPosition: "仓位管理",
-  dnaGroupRisk: "风险控制",
+  geneGroupSignal: "信号过滤",
+  geneGroupPosition: "仓位管理",
+  geneGroupRisk: "风险控制",
 
   paramAllowedTypes: "允许类型",
   paramMinEdge: "最小边际",
