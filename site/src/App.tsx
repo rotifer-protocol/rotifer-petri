@@ -284,8 +284,8 @@ function useHighlight(events: AgentEvent[]) {
     if (e.type === "TRADE_SETTLED" && Math.abs(Number(p.pnl)) > 5) {
       const pnl = Number(p.pnl);
       const name = tFund(p.fundName || p.fundId || "");
-      const sign = pnl >= 0 ? "+" : "";
-      return { text: `${name} ${t("heroHighlightSettled")} "${String(p.question).slice(0, 40)}" (${sign}$${pnl.toFixed(2)})`, positive: pnl >= 0, url: polymarketUrl(p.slug, p.question) };
+      const sign = pnl >= 0 ? "+" : "-";
+      return { text: `${name} ${t("heroHighlightSettled")} "${String(p.question).slice(0, 40)}" (${sign}$${Math.abs(pnl).toFixed(2)})`, positive: pnl >= 0, url: polymarketUrl(p.slug, p.question) };
     }
     if (e.type === "SIGNAL_FOUND" && Number(p.edge) > 15) {
       const edgeVal = Number(p.edge);
@@ -389,7 +389,7 @@ function HeroOverview({ funds, events }: { funds: FundData[]; events: AgentEvent
 
   const pnlColor = totalPnl > 0 ? "text-[var(--r-green)]" : totalPnl < 0 ? "text-[var(--r-red)]" : "";
   const returnColor = totalReturnPct > 0 ? "text-[var(--r-green)]" : totalReturnPct < 0 ? "text-[var(--r-red)]" : "";
-  const pnlPrefix = totalPnl > 0 ? "+" : "";
+  const pnlPrefix = totalPnl > 0 ? "+" : totalPnl < 0 ? "-" : "";
   const returnPrefix = totalReturnPct > 0 ? "+" : "";
 
   const highlight = useHighlight(events);

@@ -150,15 +150,15 @@ export function ShadowPanel() {
             />
             <StatCard
               label={t("shadowPaperPnl")}
-              value={`${summary.totalPaperPnl >= 0 ? "+" : ""}$${summary.totalPaperPnl.toFixed(2)}`}
-              icon={<TrendingUp className="w-4 h-4" />}
+              value={`${summary.totalPaperPnl >= 0 ? "+$" : "-$"}${Math.abs(summary.totalPaperPnl).toFixed(2)}`}
+              icon={summary.totalPaperPnl >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
               color={summary.totalPaperPnl >= 0 ? "text-[var(--r-green)]" : "text-[var(--r-red)]"}
             />
             <StatCard
               label={t("shadowDivergence")}
               value={`$${Math.abs(summary.pnlDivergence).toFixed(2)}`}
               sub={summary.pnlDivergence > 0 ? t("shadowPaperOutperforms") : summary.pnlDivergence < 0 ? t("shadowShadowOutperforms") : t("shadowEqual")}
-              icon={<TrendingDown className="w-4 h-4" />}
+              icon={summary.pnlDivergence >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
               color={Math.abs(summary.pnlDivergence) < 10 ? "text-[var(--r-green)]" : "text-[var(--r-yellow)]"}
             />
           </div>

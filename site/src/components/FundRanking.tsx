@@ -65,7 +65,7 @@ const RANK_STYLES = [
   "bg-[var(--r-surface)] text-[var(--r-text-muted)] border-[var(--r-border)]",
 ];
 
-function MiniSparkline({ data }: { data: number[] }) {
+function MiniSparkline({ data, positive }: { data: number[]; positive: boolean }) {
   if (data.length < 2) return null;
   const min = Math.min(...data);
   const max = Math.max(...data);
@@ -78,8 +78,7 @@ function MiniSparkline({ data }: { data: number[] }) {
     return `${x},${y}`;
   }).join(" ");
 
-  const trending = data[data.length - 1] >= data[0];
-  const color = trending ? "var(--r-accent)" : "var(--r-red)";
+  const color = positive ? "var(--r-accent)" : "var(--r-red)";
 
   return (
     <svg width={w} height={h} className="shrink-0 hidden sm:block">
@@ -147,7 +146,7 @@ export function FundRanking({ funds, sparklines }: { funds: Fund[]; sparklines?:
               </p>
             </div>
 
-            {sparklines?.[fund.id] && <MiniSparkline data={sparklines[fund.id]} />}
+            {sparklines?.[fund.id] && <MiniSparkline data={sparklines[fund.id]} positive={fund.returnPct >= 0} />}
 
             <div className="text-right shrink-0">
               <p className="text-xl font-bold font-mono">${fund.totalValue.toLocaleString()}</p>

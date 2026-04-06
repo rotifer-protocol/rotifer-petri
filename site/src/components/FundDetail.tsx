@@ -249,7 +249,7 @@ function TradeRow({ trade, maxHoldDays }: { trade: Trade; maxHoldDays?: number }
                     ? (pnl >= 0 ? "pnl-positive" : "pnl-negative")
                     : "text-[var(--r-text-muted)]"
                 }`}>
-                  {countsTowardPerformance ? `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}` : t("notApplicable")}
+                  {countsTowardPerformance ? `${pnl >= 0 ? "+$" : "-$"}${Math.abs(pnl).toFixed(2)}` : t("notApplicable")}
                 </p>
               </div>
             )}
@@ -270,7 +270,7 @@ function TradeRow({ trade, maxHoldDays }: { trade: Trade; maxHoldDays?: number }
                 <div>
                   <span className="text-[var(--r-text-muted)]">{t("unrealizedPnl")}</span>
                   <p className={`font-mono font-bold ${livePnl >= 0 ? "pnl-positive" : "pnl-negative"}`}>
-                    {trade.unrealized_pnl != null ? `${livePnl >= 0 ? "+" : ""}$${livePnl.toFixed(2)}` : "—"}
+                    {trade.unrealized_pnl != null ? `${livePnl >= 0 ? "+$" : "-$"}${Math.abs(livePnl).toFixed(2)}` : "—"}
                   </p>
                 </div>
                 <div>
