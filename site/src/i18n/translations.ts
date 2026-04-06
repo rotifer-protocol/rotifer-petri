@@ -314,6 +314,36 @@ const en = {
   heartbeatSkipCash: "insufficient cash",
   heartbeatNeverRun: "Pipeline has not run yet",
 
+  // Shadow table / status
+  shadowTradingHalted: "Trading Halted",
+  shadowSlippagePaperGt: "paper > shadow",
+  shadowSlippageShadowGt: "shadow > paper",
+  shadowPaperOutperforms: "paper outperforms",
+  shadowShadowOutperforms: "shadow outperforms",
+  shadowEqual: "equal",
+  shadowStatus: "Status",
+  shadowTime: "Time",
+  shadowFill: "Fill",
+  shadowReject: "Reject",
+  shadowBuy: "BUY",
+  shadowSell: "SELL",
+
+  // Gene fidelity & lifecycle
+  fidelityNative: "native",
+  fidelityHybrid: "hybrid",
+  fidelityWrapped: "wrapped",
+  lifecycleEmbedded: "embedded",
+  lifecyclePublished: "published",
+  lifecycleTrial: "trial",
+  lifecycleActive: "active",
+
+  // Gene misc
+  geneActiveCount: "active",
+  geneScoreLabel: "score",
+
+  // Micro-evolution
+  microEvoParams: "params",
+
   // Param change
   paramChangeNew: "new",
 
@@ -654,6 +684,32 @@ const zh: Record<TranslationKey, string> = {
   heartbeatSkipEdge: "个信号低于边际阈值",
   heartbeatSkipCash: "资金不足",
   heartbeatNeverRun: "管线尚未运行",
+
+  shadowTradingHalted: "交易已暂停",
+  shadowSlippagePaperGt: "模拟 > 影子",
+  shadowSlippageShadowGt: "影子 > 模拟",
+  shadowPaperOutperforms: "模拟优于影子",
+  shadowShadowOutperforms: "影子优于模拟",
+  shadowEqual: "持平",
+  shadowStatus: "状态",
+  shadowTime: "时间",
+  shadowFill: "成交",
+  shadowReject: "拒绝",
+  shadowBuy: "买入",
+  shadowSell: "卖出",
+
+  fidelityNative: "原生",
+  fidelityHybrid: "混合",
+  fidelityWrapped: "封装",
+  lifecycleEmbedded: "内嵌",
+  lifecyclePublished: "已发布",
+  lifecycleTrial: "试运行",
+  lifecycleActive: "活跃",
+
+  geneActiveCount: "个活跃",
+  geneScoreLabel: "评分",
+
+  microEvoParams: "个参数",
 
   paramChangeNew: "新增",
 

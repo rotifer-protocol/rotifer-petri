@@ -168,7 +168,7 @@ function EventSummary({ event }: { event: AgentEvent }) {
       return <span className={pnl >= 0 ? "pnl-positive" : "pnl-negative"}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} · {String(p.question).slice(0, 40)}</span>;
     }
     case "MICRO_EVOLUTION": {
-      return <span className="text-[var(--r-text-muted)]">{tFundName(t, p.fundId)} · {String(p.adjustedParams ?? 0)} params</span>;
+      return <span className="text-[var(--r-text-muted)]">{tFundName(t, p.fundId)} · {String(p.adjustedParams ?? 0)} {t("microEvoParams")}</span>;
     }
     case "SCAN_COMPLETE":
       return <span className="text-[var(--r-text-muted)]">{String(p.marketsFiltered)} {t("markets")} · {String(p.signalsFound)} {t("signals")} · {t("avgEdge")} {String(p.avgEdge)}%</span>;
@@ -325,7 +325,7 @@ function ExpandedDetail({ event }: { event: AgentEvent }) {
         <div className="space-y-2 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <DetailItem label={t("fund")} value={tFundName(t, p.fundId)} />
-            <DetailItem label={t("microEvolutionLabel")} value={`${String(p.adjustedParams ?? 0)} params`} />
+            <DetailItem label={t("microEvolutionLabel")} value={`${String(p.adjustedParams ?? 0)} ${t("microEvoParams")}`} />
           </div>
           {adjustments.length > 0 && (
             <div className="space-y-0.5 mt-1">

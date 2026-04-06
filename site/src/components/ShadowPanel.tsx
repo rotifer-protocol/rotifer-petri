@@ -90,20 +90,20 @@ function SystemStatusBanner({ system }: { system: SystemResponse }) {
       {isHalted && (
         <div className="flex items-center gap-1.5 text-[var(--r-red)]">
           <AlertTriangle className="w-4 h-4" />
-          <span className="text-xs font-medium">Trading Halted</span>
+          <span className="text-xs font-medium">{t("shadowTradingHalted")}</span>
         </div>
       )}
     </div>
   );
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, locale: string): string {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(locale === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export function ShadowPanel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { data: shadowData, loading: shadowLoading } = useFetch<ShadowResponse>("/api/shadow?limit=100", 30_000);
   const { data: systemData, loading: systemLoading } = useFetch<SystemResponse>("/api/system", 10_000);
 
@@ -138,7 +138,7 @@ export function ShadowPanel() {
             <StatCard
               label={t("shadowAvgSlippage")}
               value={`$${Math.abs(summary.avgSlippageImpact).toFixed(2)}`}
-              sub={summary.avgSlippageImpact > 0 ? "paper > shadow" : "shadow > paper"}
+              sub={summary.avgSlippageImpact > 0 ? t("shadowSlippagePaperGt") : t("shadowSlippageShadowGt")}
               icon={<Activity className="w-4 h-4" />}
               color="text-[var(--r-text-muted)]"
             />
@@ -151,7 +151,7 @@ export function ShadowPanel() {
             <StatCard
               label={t("shadowDivergence")}
               value={`$${Math.abs(summary.pnlDivergence).toFixed(2)}`}
-              sub={summary.pnlDivergence > 0 ? "paper outperforms" : summary.pnlDivergence < 0 ? "shadow outperforms" : "equal"}
+              sub={summary.pnlDivergence > 0 ? t("shadowPaperOutperforms") : summary.pnlDivergence < 0 ? t("shadowShadowOutperforms") : t("shadowEqual")}
               icon={<TrendingDown className="w-4 h-4" />}
               color={Math.abs(summary.pnlDivergence) < 10 ? "text-[var(--r-green)]" : "text-[var(--r-yellow)]"}
             />
@@ -168,20 +168,20 @@ export function ShadowPanel() {
                     <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">{t("entryPrice")}</th>
                     <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">{t("shadowSimFillPrice")}</th>
                     <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">{t("shadowSlippage")}</th>
-                    <th className="text-center p-3 text-[var(--r-text-muted)] font-medium">Status</th>
+                    <th className="text-center p-3 text-[var(--r-text-muted)] font-medium">{t("shadowStatus")}</th>
                     <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">{t("shadowPaperPnl")}</th>
                     <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">{t("shadowRealPnl")}</th>
-                    <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">Time</th>
+                    <th className="text-right p-3 text-[var(--r-text-muted)] font-medium">{t("shadowTime")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {shadow.orders.map((order) => (
                     <tr key={order.id} className="border-b border-[var(--r-border)]/50 hover:bg-[var(--r-surface-hover)]">
                       <td className="p-3 font-medium">{order.fund_id}</td>
-                      <td className="p-3">{order.direction}</td>
+                      <td className="p-3">{({"BUY_YES": t("directionBuyYes"), "SELL_YES": t("directionSellYes"), "BUY_BOTH": t("directionBuyBoth"), "SELL_BOTH": t("directionSellBoth"), "BUY_STRONGEST": t("directionBuyStrongest"), "SELL_WEAKEST": t("directionSellWeakest"), "PROVIDE_LIQUIDITY": t("directionProvideLiquidity")} as Record<string, string>)[order.direction] ?? order.direction}</td>
                       <td className="p-3">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${order.side === "BUY" ? "bg-[var(--r-green)]/15 text-[var(--r-green)]" : "bg-[var(--r-red)]/15 text-[var(--r-red)]"}`}>
-                          {order.side}
+                          {order.side === "BUY" ? t("shadowBuy") : t("shadowSell")}
                         </span>
                       </td>
                       <td className="p-3 text-right font-mono">{order.price.toFixed(4)}</td>
@@ -190,11 +190,11 @@ export function ShadowPanel() {
                       <td className="p-3 text-center">
                         {order.status === "WOULD_FILL" ? (
                           <span className="inline-flex items-center gap-1 text-[var(--r-green)]">
-                            <CheckCircle className="w-3 h-3" /> Fill
+                            <CheckCircle className="w-3 h-3" /> {t("shadowFill")}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[var(--r-red)]">
-                            <XCircle className="w-3 h-3" /> Reject
+                            <XCircle className="w-3 h-3" /> {t("shadowReject")}
                           </span>
                         )}
                       </td>
@@ -212,7 +212,7 @@ export function ShadowPanel() {
                           </span>
                         ) : "—"}
                       </td>
-                      <td className="p-3 text-right text-[var(--r-text-faint)]">{formatTime(order.created_at)}</td>
+                      <td className="p-3 text-right text-[var(--r-text-faint)]">{formatTime(order.created_at, locale)}</td>
                     </tr>
                   ))}
                 </tbody>

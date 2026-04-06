@@ -1,6 +1,20 @@
 import { useI18n } from "../i18n/context";
+import type { TranslationKey } from "../i18n/translations";
 import { useFetch } from "../hooks/useApi";
 import { GitBranch, Zap, Trophy, XCircle, Activity } from "lucide-react";
+
+const FIDELITY_KEYS: Record<string, TranslationKey> = {
+  native: "fidelityNative",
+  hybrid: "fidelityHybrid",
+  wrapped: "fidelityWrapped",
+};
+
+const LIFECYCLE_KEYS: Record<string, TranslationKey> = {
+  embedded: "lifecycleEmbedded",
+  published: "lifecyclePublished",
+  trial: "lifecycleTrial",
+  active: "lifecycleActive",
+};
 
 interface GeneVariant {
   id: string;
@@ -129,15 +143,15 @@ export function GeneEvolutionPanel() {
                 <GitBranch className="w-4 h-4 text-[var(--r-accent)]" />
                 <span className="text-sm font-medium">{geneId.replace("polymarket-", "")}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--r-accent)]/10 text-[var(--r-accent)]">
-                  {gv.filter(v => v.status === "active").length} active
+                  {gv.filter(v => v.status === "active").length} {t("geneActiveCount")}
                 </span>
                 {meta && (
                   <>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${fidelityColor}`}>
-                      {meta.fidelity}
+                      {FIDELITY_KEYS[meta.fidelity] ? t(FIDELITY_KEYS[meta.fidelity]) : meta.fidelity}
                     </span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--r-surface)] text-[var(--r-text-faint)] border border-[var(--r-border)]">
-                      {meta.lifecycleStatus}
+                      {LIFECYCLE_KEYS[meta.lifecycleStatus] ? t(LIFECYCLE_KEYS[meta.lifecycleStatus]) : meta.lifecycleStatus}
                     </span>
                   </>
                 )}
@@ -150,7 +164,7 @@ export function GeneEvolutionPanel() {
                       <th className="text-right py-1 px-2">{t("genePetriScore")}</th>
                       <th className="text-right py-1 px-2">{t("geneTradesEvaluated")}</th>
                       <th className="text-right py-1 px-2">{t("geneWinRate")}</th>
-                      <th className="text-right py-1 px-2">PnL</th>
+                      <th className="text-right py-1 px-2">{t("pnl")}</th>
                       <th className="text-right py-1 pl-2">{t("geneStatus")}</th>
                     </tr>
                   </thead>
@@ -215,7 +229,7 @@ export function GeneEvolutionPanel() {
                         <span className="text-[var(--r-text-faint)]">{entry.geneId.replace("polymarket-", "")}</span>
                       )}
                       {entry.petriScore !== null && (
-                        <span className="text-[var(--r-text-faint)] font-mono">score: {entry.petriScore.toFixed(1)}</span>
+                        <span className="text-[var(--r-text-faint)] font-mono">{t("geneScoreLabel")}: {entry.petriScore.toFixed(1)}</span>
                       )}
                     </div>
                     {entry.variantId && (
