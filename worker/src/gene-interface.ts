@@ -122,6 +122,7 @@ export type GeneLifecycleStatus = "embedded" | "published" | "trial" | "active";
 export interface GeneMeta {
   id: string;
   name: string;
+  nameZh?: string;
   version: string;
   fidelity: GeneFidelity;
   lifecycleStatus: GeneLifecycleStatus;
@@ -134,6 +135,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
   {
     id: "polymarket-scanner",
     name: "Polymarket Scanner",
+    nameZh: "信号扫描器",
     version: "0.1.0",
     fidelity: "hybrid",
     lifecycleStatus: "embedded",
@@ -144,6 +146,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
   {
     id: "polymarket-risk",
     name: "Polymarket Risk Manager",
+    nameZh: "风控管理器",
     version: "0.1.0",
     fidelity: "native",
     lifecycleStatus: "embedded",
@@ -153,6 +156,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
   {
     id: "polymarket-monitor",
     name: "Polymarket Active Monitor",
+    nameZh: "持仓监控器",
     version: "0.1.0",
     fidelity: "hybrid",
     lifecycleStatus: "embedded",
@@ -163,6 +167,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
   {
     id: "polymarket-settler",
     name: "Polymarket Market Settler",
+    nameZh: "结算清算器",
     version: "0.1.0",
     fidelity: "native",
     lifecycleStatus: "embedded",
@@ -172,6 +177,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
   {
     id: "polymarket-trader",
     name: "Polymarket Paper Trader",
+    nameZh: "模拟交易器",
     version: "0.1.0",
     fidelity: "native",
     lifecycleStatus: "embedded",
@@ -181,6 +187,7 @@ export const GENE_REGISTRY: GeneMeta[] = [
   {
     id: "polymarket-evolver",
     name: "Polymarket Strategy Evolver",
+    nameZh: "策略进化器",
     version: "0.1.0",
     fidelity: "native",
     lifecycleStatus: "embedded",

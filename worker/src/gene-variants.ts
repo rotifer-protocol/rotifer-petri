@@ -12,6 +12,7 @@ export interface GeneVariant {
   geneId: string;
   variantName: string;
   description: string | null;
+  descriptionZh: string | null;
   strategyKey: string;
   config: Record<string, unknown>;
   parentVariantId: string | null;
@@ -219,6 +220,7 @@ function mapVariantRow(row: any): GeneVariant {
     geneId: row.gene_id,
     variantName: row.variant_name,
     description: row.description,
+    descriptionZh: row.description_zh ?? null,
     strategyKey: row.strategy_key,
     config: JSON.parse(row.config || "{}"),
     parentVariantId: row.parent_variant_id,

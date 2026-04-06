@@ -79,8 +79,8 @@ const ACTION_ICONS: Record<string, typeof Zap> = {
 };
 
 export function GeneEvolutionPanel() {
-  const { t } = useI18n();
-  const { data: varData, loading: varLoading } = useFetch<VariantsResponse>("/api/gene-variants", 60000);
+  const { t, locale } = useI18n();
+  const { data: varData, loading: varLoading } = useFetch<VariantsResponse>(`/api/gene-variants?lang=${locale}`, 60000);
   const { data: evoData, loading: evoLoading } = useFetch<EvolutionResponse>("/api/gene-evolution?limit=30", 60000);
 
   if (varLoading || evoLoading) {
@@ -141,7 +141,7 @@ export function GeneEvolutionPanel() {
             <div key={geneId} className="glass-card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <GitBranch className="w-4 h-4 text-[var(--r-accent)]" />
-                <span className="text-sm font-medium">{geneId.replace("polymarket-", "")}</span>
+                <span className="text-sm font-medium">{locale === "zh" && meta?.name ? meta.name : geneId.replace("polymarket-", "")}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--r-accent)]/10 text-[var(--r-accent)]">
                   {gv.filter(v => v.status === "active").length} {t("geneActiveCount")}
                 </span>
@@ -226,7 +226,7 @@ export function GeneEvolutionPanel() {
                     <div className="flex items-center gap-2 text-xs">
                       <span className="font-medium">{label}</span>
                       {entry.geneId !== "*" && (
-                        <span className="text-[var(--r-text-faint)]">{entry.geneId.replace("polymarket-", "")}</span>
+                        <span className="text-[var(--r-text-faint)]">{locale === "zh" && registryMap.get(entry.geneId)?.name ? registryMap.get(entry.geneId)!.name : entry.geneId.replace("polymarket-", "")}</span>
                       )}
                       {entry.petriScore !== null && (
                         <span className="text-[var(--r-text-faint)] font-mono">{t("geneScoreLabel")}: {entry.petriScore.toFixed(1)}</span>

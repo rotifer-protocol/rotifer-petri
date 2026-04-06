@@ -1,7 +1,7 @@
 import type { Env, FundConfig } from "./types";
 import { corsHeaders } from "./auth";
 import { listVariants, getLineage, getEvolutionLog, getAllActiveVariants, getCurrentEpoch } from "./gene-variants";
-import { GENE_REGISTRY } from "./gene-interface";
+import { GENE_REGISTRY, type GeneMeta } from "./gene-interface";
 import {
   calculateCurrentPositionValue,
   calculateOpenPositionStats,
@@ -604,6 +604,14 @@ async function apiSystem(
 
 // ─── Gene Evolution APIs (Phase 3.5) ────────────────────
 
+function localizeRegistry(registry: GeneMeta[], lang: string) {
+  if (lang !== "zh") return registry;
+  return registry.map(r => ({
+    ...r,
+    name: r.nameZh || r.name,
+  }));
+}
+
 async function apiGeneVariants(
   db: D1Database,
   req: Request,
@@ -611,12 +619,18 @@ async function apiGeneVariants(
 ): Promise<Response> {
   const url = new URL(req.url);
   const geneId = url.searchParams.get("gene") ?? undefined;
+  const lang = url.searchParams.get("lang") ?? "en";
   const variants = await listVariants(db, geneId);
   const active = await getAllActiveVariants(db);
+
+  const localizedVariants = lang === "zh"
+    ? variants.map(v => ({ ...v, description: v.descriptionZh || v.description }))
+    : variants;
+
   return Response.json({
-    variants,
+    variants: localizedVariants,
     activeConfig: Object.fromEntries(active),
-    registry: GENE_REGISTRY,
+    registry: localizeRegistry(GENE_REGISTRY, lang),
   }, { headers });
 }
 
