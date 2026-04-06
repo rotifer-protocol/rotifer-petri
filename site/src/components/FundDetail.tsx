@@ -535,7 +535,7 @@ export function FundDetail() {
             {fundEvoLogs.slice(0, 10).map((log: EvolutionLog) => (
               <div key={log.id} className="glass-card px-4 py-3">
                 <div className="flex items-center gap-2 text-sm">
-                  <Dna className="w-4 h-4 text-[var(--r-accent)]" />
+                  <Fingerprint className="w-4 h-4 text-[var(--r-accent)]" />
                   <span className="font-medium text-[var(--r-accent)]">{REASON_I18N[log.action] ? t(REASON_I18N[log.action]) : log.action}</span>
                   <span className="text-xs text-[var(--r-text-muted)]">{t("epoch")} {log.epoch}</span>
                   {log.fitness_before != null && log.fitness_after != null && (
