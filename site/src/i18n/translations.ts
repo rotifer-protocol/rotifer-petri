@@ -162,7 +162,7 @@ const en = {
 
   // Footer
   poweredBy: "Powered by",
-  tagline: "Agent Evolution Framework",
+  tagline: "Open-source evolution framework for AI agents",
   dataSourced: "Data sourced from",
   accuracyNote: "Accuracy not guaranteed.",
   footerBrandSub: "A Rotifer Protocol experiment",
@@ -547,7 +547,7 @@ const zh: Record<TranslationKey, string> = {
   lineageFrom: "源自",
 
   poweredBy: "驱动者",
-  tagline: "Agent 进化框架",
+  tagline: "开源 AI Agent 进化框架",
   dataSourced: "数据来源",
   accuracyNote: "准确性不作保证。",
   footerBrandSub: "Rotifer Protocol 实验项目",
